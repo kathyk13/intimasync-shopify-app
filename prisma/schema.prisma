@@ -1,0 +1,206 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Store {
+  id                String    @id @default(cuid())
+  shopDomain        String    @unique
+  accessToken       String
+  isActive          Boolean   @default(true)
+  planType          String    @default("starter")
+  billingStatus     String    @default("active")
+  
+  // Supplier Credentials (encrypted)
+  nalpacUsername    String?
+  nalpacPassword    String?
+  honeysUsername    String?
+  honeysApiToken    String?
+  eldoradoHost      String?
+  eldoradoUsername  String?
+  eldoradoPassword  String?
+  eldoradoAccount   String?
+  
+  // Settings
+  defaultShipMethod String    @default("standard")
+  maxSuppliers      Int       @default(2)
+  autoSync          Boolean   @default(true)
+  syncFrequency     Int       @default(24)
+  
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  products          Product[]
+  orders            Order[]
+  syncLogs          SyncLog[]
+  
+  @@map("stores")
+}
+
+model Supplier {
+  id              String    @id @default(cuid())
+  name            String    @unique
+  apiType         String
+  isActive        Boolean   @default(true)
+  syncFrequency   Int       @default(24)
+  lastSyncAt      DateTime?
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  supplierProducts SupplierProduct[]
+  orderItems       OrderItem[]
+  
+  @@map("suppliers")
+}
+
+model Product {
+  id              String    @id @default(cuid())
+  upc             String?   @unique
+  title           String
+  description     String?
+  msrp            Decimal?
+  category        String?
+  brand           String?
+  weight          Decimal?
+  dimensions      String?
+  ingredients     String?
+  
+  shopifyProductId String?
+  shopifyVariantId String?
+  internalSku      String?
+  importStatus     String   @default("pending")
+  isFavorite       Boolean  @default(false)
+  isActive         Boolean  @default(true)
+  
+  preferredSupplier String?
+  isSupplierLocked  Boolean @default(false)
+  
+  storeId         String
+  store           Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  supplierProducts SupplierProduct[]
+  images           ProductImage[]
+  orderItems       OrderItem[]
+  
+  @@map("products")
+}
+
+model SupplierProduct {
+  id              String    @id @default(cuid())
+  productId       String
+  supplierId      String
+  supplierSku     String
+  cost            Decimal
+  inventory       Int       @default(0)
+  isPreferred     Boolean   @default(false)
+  lastSyncAt      DateTime?
+  
+  product         Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  supplier        Supplier  @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  @@unique([productId, supplierId])
+  @@map("supplier_products")
+}
+
+model ProductImage {
+  id              String    @id @default(cuid())
+  productId       String
+  imageUrl        String
+  altText         String?
+  position        Int       @default(0)
+  supplierId      String?
+  shopifyImageId  String?
+  
+  product         Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  createdAt       DateTime  @default(now())
+  
+  @@map("product_images")
+}
+
+model Order {
+  id                String      @id @default(cuid())
+  shopifyOrderId    String      @unique
+  orderNumber       String
+  customerEmail     String?
+  totalAmount       Decimal
+  status            String      @default("pending")
+  routingStrategy   String      @default("cheapest")
+  
+  shippingAddress   Json
+  
+  storeId           String
+  store             Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  
+  orderItems        OrderItem[]
+  fulfillments      Fulfillment[]
+  
+  @@map("orders")
+}
+
+model OrderItem {
+  id              String    @id @default(cuid())
+  orderId         String
+  productId       String
+  supplierId      String
+  quantity        Int
+  unitCost        Decimal
+  totalCost       Decimal
+  supplierSku     String
+  
+  order           Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product         Product   @relation(fields: [productId], references: [id])
+  supplier        Supplier  @relation(fields: [supplierId], references: [id])
+  
+  createdAt       DateTime  @default(now())
+  
+  @@map("order_items")
+}
+
+model Fulfillment {
+  id                String    @id @default(cuid())
+  orderId           String
+  supplierId        String
+  supplierOrderId   String?
+  trackingNumber    String?
+  trackingUrl       String?
+  status            String    @default("pending")
+  shippedAt         DateTime?
+  
+  order             Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  @@map("fulfillments")
+}
+
+model SyncLog {
+  id              String    @id @default(cuid())
+  storeId         String
+  supplierId      String?
+  syncType        String
+  status          String
+  message         String?
+  recordsProcessed Int      @default(0)
+  
+  store           Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  
+  createdAt       DateTime  @default(now())
+  
+  @@map("sync_logs")
+}
