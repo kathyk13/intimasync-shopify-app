@@ -6,7 +6,13 @@ const morgan = require('morgan');
 const cron = require('node-cron');
 const { shopifyApi, LATEST_API_VERSION } = require('@shopify/shopify-api');
 const { restResources } = require('@shopify/shopify-api/rest/admin/2023-07');
+const { ApiVersion } = require('@shopify/shopify-api');
+
+// Import the Node.js adapter - THIS IS THE FIX!
+require('@shopify/shopify-api/adapters/node');
+
 require('dotenv').config();
+
 
 // Validate required environment variables
 const requiredEnvVars = ['SHOPIFY_API_KEY', 'DATABASE_URL'];
@@ -50,7 +56,7 @@ const shopify = shopifyApi({
   apiSecretKey: process.env.SHOPIFY_API_SECRET_KEY || process.env.SHOPIFY_API_SECRET,
   scopes: ['read_products', 'write_products', 'read_orders', 'write_orders', 'read_inventory', 'write_inventory'],
   hostName: process.env.HOST_NAME || 'intimasync.onrender.com',
-  apiVersion: LATEST_API_VERSION,
+  apiVersion: ApiVersion.July23,
   isEmbeddedApp: true,
   restResources,
 });
