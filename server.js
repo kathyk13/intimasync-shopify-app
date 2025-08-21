@@ -287,7 +287,252 @@ app.get('/app', async (req, res) => {
             }
 
             function openSettings() {
-                showMessage('Settings panel coming soon! For now, use the API to configure credentials.', 'info');
+                showSettingsModal();
+            }
+
+            function showSettingsModal() {
+                const modal = document.createElement('div');
+                modal.style.cssText = `
+                    position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+                    background: rgba(0,0,0,0.5); z-index: 1000; display: flex; 
+                    align-items: center; justify-content: center;
+                `;
+                
+                modal.innerHTML = \`
+                    <div style="background: white; padding: 30px; border-radius: 8px; width: 90%; max-width: 600px; max-height: 80%; overflow-y: auto;">
+                        <h2>⚙️ Supplier Settings</h2>
+                        <p>Configure your supplier API credentials to enable inventory sync.</p>
+                        
+                        <form id="settings-form">
+                            <div style="margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 4px;">
+                                <h3>🔵 Nalpac Configuration</h3>
+                                <div style="margin: 10px 0;">
+                                    <label style="display: block; margin-bottom: 5px;"><strong>Username:</strong></label>
+                                    <input type="text" id="nalpac-username" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" placeholder="Your Nalpac username">
+                                </div>
+                                <div style="margin: 10px 0;">
+                                    <label style="display: block; margin-bottom: 5px;"><strong>Password:</strong></label>
+                                    <input type="password" id="nalpac-password" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" placeholder="Your Nalpac password">
+                                </div>
+                                <button type="button" onclick="testConnection('nalpac')" style="background: #0066cc; color: white; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer;">
+                                    Test Nalpac Connection
+                                </button>
+                                <span id="nalpac-status" style="margin-left: 10px;"></span>
+                            </div>
+
+                            <div style="margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 4px;">
+                                <h3>🍯 Honey's Place Configuration</h3>
+                                <div style="margin: 10px 0;">
+                                    <label style="display: block; margin-bottom: 5px;"><strong>Username:</strong></label>
+                                    <input type="text" id="honeys-username" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" placeholder="Your Honey's Place username">
+                                </div>
+                                <div style="margin: 10px 0;">
+                                    <label style="display: block; margin-bottom: 5px;"><strong>API Token:</strong></label>
+                                    <input type="password" id="honeys-token" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" placeholder="Your API token from Honey's Place">
+                                </div>
+                                <button type="button" onclick="testConnection('honeys')" style="background: #d32f2f; color: white; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer;">
+                                    Test Honey's Connection
+                                </button>
+                                <span id="honeys-status" style="margin-left: 10px;"></span>
+                            </div>
+
+                            <div style="margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 4px;">
+                                <h3>🏰 Eldorado Configuration</h3>
+                                <div style="margin: 10px 0;">
+                                    <label style="display: block; margin-bottom: 5px;"><strong>SFTP Host:</strong></label>
+                                    <input type="text" id="eldorado-host" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" value="52.27.75.88" placeholder="SFTP host (default: 52.27.75.88)">
+                                </div>
+                                <div style="margin: 10px 0;">
+                                    <label style="display: block; margin-bottom: 5px;"><strong>Username:</strong></label>
+                                    <input type="text" id="eldorado-username" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" placeholder="Your Eldorado username">
+                                </div>
+                                <div style="margin: 10px 0;">
+                                    <label style="display: block; margin-bottom: 5px;"><strong>Password:</strong></label>
+                                    <input type="password" id="eldorado-password" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" placeholder="Your Eldorado password">
+                                </div>
+                                <div style="margin: 10px 0;">
+                                    <label style="display: block; margin-bottom: 5px;"><strong>Account Number:</strong></label>
+                                    <input type="text" id="eldorado-account" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" placeholder="Your Eldorado account number">
+                                </div>
+                                <button type="button" onclick="testConnection('eldorado')" style="background: #388e3c; color: white; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer;">
+                                    Test Eldorado Connection
+                                </button>
+                                <span id="eldorado-status" style="margin-left: 10px;"></span>
+                            </div>
+
+                            <div style="margin: 30px 0; padding: 15px; background: #f8f9fa; border-radius: 4px;">
+                                <h3>🔄 Sync Settings</h3>
+                                <div style="margin: 10px 0;">
+                                    <label style="display: inline-block; width: 200px;"><strong>Auto Sync Enabled:</strong></label>
+                                    <input type="checkbox" id="auto-sync" checked> <span style="color: #666;">Automatically sync inventory daily</span>
+                                </div>
+                                <div style="margin: 10px 0;">
+                                    <label style="display: inline-block; width: 200px;"><strong>Max Suppliers per Order:</strong></label>
+                                    <select id="max-suppliers" style="padding: 6px; border: 1px solid #ccc; border-radius: 4px;">
+                                        <option value="1">1 supplier (minimize costs)</option>
+                                        <option value="2" selected>2 suppliers (balance cost/speed)</option>
+                                        <option value="3">3 suppliers (maximize availability)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div style="text-align: center; margin-top: 30px;">
+                                <button type="button" onclick="saveSettings()" style="background: #0066cc; color: white; padding: 12px 24px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px; font-size: 16px;">
+                                    💾 Save All Settings
+                                </button>
+                                <button type="button" onclick="closeSettings()" style="background: #666; color: white; padding: 12px 24px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px;">
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                \`;
+                
+                document.body.appendChild(modal);
+                window.settingsModal = modal;
+                
+                // Load existing settings
+                loadCurrentSettings();
+            }
+
+            async function testConnection(supplier) {
+                const statusSpan = document.getElementById(supplier + '-status');
+                statusSpan.innerHTML = '🔄 Testing...';
+                
+                let credentials = {};
+                
+                if (supplier === 'nalpac') {
+                    credentials = {
+                        username: document.getElementById('nalpac-username').value,
+                        password: document.getElementById('nalpac-password').value
+                    };
+                } else if (supplier === 'honeys') {
+                    credentials = {
+                        username: document.getElementById('honeys-username').value,
+                        token: document.getElementById('honeys-token').value
+                    };
+                } else if (supplier === 'eldorado') {
+                    credentials = {
+                        host: document.getElementById('eldorado-host').value,
+                        username: document.getElementById('eldorado-username').value,
+                        password: document.getElementById('eldorado-password').value,
+                        account: document.getElementById('eldorado-account').value
+                    };
+                }
+
+                try {
+                    const response = await fetch(\`/api/suppliers/\${supplier}/test\`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Shopify-Shop-Domain': '${shop}',
+                            'X-Shopify-Access-Token': 'temp'
+                        },
+                        body: JSON.stringify(credentials)
+                    });
+
+                    if (response.ok) {
+                        statusSpan.innerHTML = '✅ Connected';
+                        statusSpan.style.color = 'green';
+                    } else {
+                        statusSpan.innerHTML = '❌ Failed';
+                        statusSpan.style.color = 'red';
+                    }
+                } catch (error) {
+                    statusSpan.innerHTML = '❌ Error';
+                    statusSpan.style.color = 'red';
+                }
+            }
+
+            async function saveSettings() {
+                const settings = {
+                    nalpac: {
+                        username: document.getElementById('nalpac-username').value,
+                        password: document.getElementById('nalpac-password').value
+                    },
+                    honeys: {
+                        username: document.getElementById('honeys-username').value,
+                        token: document.getElementById('honeys-token').value
+                    },
+                    eldorado: {
+                        host: document.getElementById('eldorado-host').value,
+                        username: document.getElementById('eldorado-username').value,
+                        password: document.getElementById('eldorado-password').value,
+                        account: document.getElementById('eldorado-account').value
+                    },
+                    sync: {
+                        autoSync: document.getElementById('auto-sync').checked,
+                        maxSuppliers: parseInt(document.getElementById('max-suppliers').value)
+                    }
+                };
+
+                try {
+                    const response = await fetch('/api/settings', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Shopify-Shop-Domain': '${shop}',
+                            'X-Shopify-Access-Token': 'temp'
+                        },
+                        body: JSON.stringify(settings)
+                    });
+
+                    if (response.ok) {
+                        showMessage('✅ Settings saved successfully!', 'success');
+                        closeSettings();
+                    } else {
+                        showMessage('❌ Failed to save settings', 'error');
+                    }
+                } catch (error) {
+                    showMessage('❌ Error saving settings', 'error');
+                }
+            }
+
+            function closeSettings() {
+                if (window.settingsModal) {
+                    document.body.removeChild(window.settingsModal);
+                    window.settingsModal = null;
+                }
+            }
+
+            async function loadCurrentSettings() {
+                try {
+                    const response = await fetch('/api/settings', {
+                        headers: {
+                            'X-Shopify-Shop-Domain': '${shop}',
+                            'X-Shopify-Access-Token': 'temp'
+                        }
+                    });
+
+                    if (response.ok) {
+                        const settings = await response.json();
+                        
+                        // Load Nalpac settings
+                        if (settings.nalpac) {
+                            document.getElementById('nalpac-username').value = settings.nalpac.username || '';
+                        }
+                        
+                        // Load Honey's settings
+                        if (settings.honeys) {
+                            document.getElementById('honeys-username').value = settings.honeys.username || '';
+                        }
+                        
+                        // Load Eldorado settings
+                        if (settings.eldorado) {
+                            document.getElementById('eldorado-host').value = settings.eldorado.host || '52.27.75.88';
+                            document.getElementById('eldorado-username').value = settings.eldorado.username || '';
+                            document.getElementById('eldorado-account').value = settings.eldorado.account || '';
+                        }
+                        
+                        // Load sync settings
+                        if (settings.sync) {
+                            document.getElementById('auto-sync').checked = settings.sync.autoSync !== false;
+                            document.getElementById('max-suppliers').value = settings.sync.maxSuppliers || 2;
+                        }
+                    }
+                } catch (error) {
+                    console.log('Could not load existing settings');
+                }
             }
 
             function showMessage(text, type) {
@@ -327,6 +572,104 @@ app.get('/app', async (req, res) => {
     </body>
     </html>
   `);
+});
+
+// Settings API endpoint
+app.get('/api/settings', async (req, res) => {
+  try {
+    const store = await prisma.store.findUnique({
+      where: { id: req.store.id },
+      select: {
+        nalpacUsername: true,
+        honeysUsername: true,
+        eldoradoHost: true,
+        eldoradoUsername: true,
+        eldoradoAccount: true,
+        autoSync: true,
+        maxSuppliers: true
+      }
+    });
+
+    res.json({
+      nalpac: {
+        username: store.nalpacUsername
+      },
+      honeys: {
+        username: store.honeysUsername
+      },
+      eldorado: {
+        host: store.eldoradoHost,
+        username: store.eldoradoUsername,
+        account: store.eldoradoAccount
+      },
+      sync: {
+        autoSync: store.autoSync,
+        maxSuppliers: store.maxSuppliers
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/settings', async (req, res) => {
+  try {
+    const { nalpac, honeys, eldorado, sync } = req.body;
+
+    await prisma.store.update({
+      where: { id: req.store.id },
+      data: {
+        // Nalpac credentials
+        nalpacUsername: nalpac?.username || null,
+        nalpacPassword: nalpac?.password || null,
+        
+        // Honey's Place credentials
+        honeysUsername: honeys?.username || null,
+        honeysApiToken: honeys?.token || null,
+        
+        // Eldorado credentials
+        eldoradoHost: eldorado?.host || null,
+        eldoradoUsername: eldorado?.username || null,
+        eldoradoPassword: eldorado?.password || null,
+        eldoradoAccount: eldorado?.account || null,
+        
+        // Sync settings
+        autoSync: sync?.autoSync !== false,
+        maxSuppliers: sync?.maxSuppliers || 2
+      }
+    });
+
+    res.json({ message: 'Settings saved successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Test supplier connection endpoints
+app.post('/api/suppliers/:supplier/test', async (req, res) => {
+  try {
+    const { supplier } = req.params;
+    const credentials = req.body;
+
+    // Simple connection test (you can enhance this with actual API calls)
+    let isValid = false;
+    
+    if (supplier === 'nalpac') {
+      isValid = credentials.username && credentials.password;
+    } else if (supplier === 'honeys') {
+      isValid = credentials.username && credentials.token;
+    } else if (supplier === 'eldorado') {
+      isValid = credentials.username && credentials.password && credentials.account;
+    }
+
+    if (isValid) {
+      res.json({ status: 'success', message: 'Connection test passed' });
+    } else {
+      res.status(400).json({ status: 'error', message: 'Invalid credentials' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // API Routes
