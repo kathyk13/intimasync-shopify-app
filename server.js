@@ -8,6 +8,26 @@ const { shopifyApi, LATEST_API_VERSION } = require('@shopify/shopify-api');
 const { restResources } = require('@shopify/shopify-api/rest/admin/2023-07');
 require('dotenv').config();
 
+// Validate required environment variables
+const requiredEnvVars = ['SHOPIFY_API_KEY', 'DATABASE_URL'];
+const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+
+if (missingVars.length > 0) {
+  console.error('Missing required environment variables:', missingVars);
+  process.exit(1);
+}
+
+// Check for Shopify API secret (multiple possible names)
+if (!process.env.SHOPIFY_API_SECRET_KEY && !process.env.SHOPIFY_API_SECRET) {
+  console.error('Missing SHOPIFY_API_SECRET_KEY or SHOPIFY_API_SECRET');
+  process.exit(1);
+}
+
+console.log('✅ Environment variables validated');
+console.log('📝 Shopify API Key:', process.env.SHOPIFY_API_KEY ? 'Set' : 'Missing');
+console.log('📝 Shopify API Secret:', (process.env.SHOPIFY_API_SECRET_KEY || process.env.SHOPIFY_API_SECRET) ? 'Set' : 'Missing');
+console.log('📝 Database:', process.env.DATABASE_URL ? 'Set' : 'Missing');
+
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
@@ -27,9 +47,9 @@ const PORT = process.env.PORT || 3000;
 // Initialize Shopify API
 const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
-  apiSecret: process.env.SHOPIFY_API_SECRET,
+  apiSecret: process.env.SHOPIFY_API_SECRET_KEY || process.env.SHOPIFY_API_SECRET,
   scopes: ['read_products', 'write_products', 'read_orders', 'write_orders', 'read_inventory', 'write_inventory'],
-  hostName: process.env.HOST_NAME || 'localhost:3000',
+  hostName: process.env.HOST_NAME || 'intimasync.onrender.com',
   apiVersion: LATEST_API_VERSION,
   isEmbeddedApp: true,
   restResources,
