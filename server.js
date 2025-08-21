@@ -47,7 +47,7 @@ const PORT = process.env.PORT || 3000;
 // Initialize Shopify API
 const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
-  apiSecret: process.env.SHOPIFY_API_SECRET_KEY || process.env.SHOPIFY_API_SECRET,
+  apiSecretKey: process.env.SHOPIFY_API_SECRET_KEY || process.env.SHOPIFY_API_SECRET,
   scopes: ['read_products', 'write_products', 'read_orders', 'write_orders', 'read_inventory', 'write_inventory'],
   hostName: process.env.HOST_NAME || 'intimasync.onrender.com',
   apiVersion: LATEST_API_VERSION,
