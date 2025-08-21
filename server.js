@@ -55,7 +55,7 @@ const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET_KEY || process.env.SHOPIFY_API_SECRET,
   scopes: ['read_products', 'write_products', 'read_orders', 'write_orders', 'read_inventory', 'write_inventory'],
-  hostName: process.env.HOST_NAME || 'intimasync.onrender.com',
+  hostName: process.env.HOST_NAME || 'intimasync-backend.onrender.com',
   apiVersion: ApiVersion.July23,
   isEmbeddedApp: true,
   restResources,
