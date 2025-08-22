@@ -257,7 +257,7 @@ app.get('/api/install', verifyShopifyRequest, async (req, res) => {
 });
 
 // App Embedded Interface Route
-app.get('/api/app', async (req, res) => {
+app.get('/app', async (req, res) => {
   try {
     const { shop, token } = req.query;
     
