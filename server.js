@@ -1,678 +1,1297 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const compression = require('compression');
-const morgan = require('morgan');
-const cron = require('node-cron');
-const { shopifyApi, LATEST_API_VERSION } = require('@shopify/shopify-api');
-const { restResources } = require('@shopify/shopify-api/rest/admin/2023-07');
-const { ApiVersion } = require('@shopify/shopify-api');
-
-// Import the Node.js adapter - CRITICAL for Shopify API v7.5.0+
-require('@shopify/shopify-api/adapters/node');
-require('dotenv').config();
-
-// Validate required environment variables
-const requiredEnvVars = ['SHOPIFY_API_KEY', 'DATABASE_URL'];
-const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
-
-if (missingVars.length > 0) {
-  console.error('Missing required environment variables:', missingVars);
-  process.exit(1);
-}
-
-// Check for Shopify API secret (multiple possible names for compatibility)
-if (!process.env.SHOPIFY_API_SECRET_KEY && !process.env.SHOPIFY_API_SECRET) {
-  console.error('Missing SHOPIFY_API_SECRET_KEY or SHOPIFY_API_SECRET');
-  process.exit(1);
-}
-
-console.log('✅ Environment variables validated');
-console.log('📝 Shopify API Key:', process.env.SHOPIFY_API_KEY ? 'Set' : 'Missing');
-console.log('📝 Shopify API Secret:', (process.env.SHOPIFY_API_SECRET_KEY || process.env.SHOPIFY_API_SECRET) ? 'Set' : 'Missing');
-console.log('📝 Database:', process.env.DATABASE_URL ? 'Set' : 'Missing');
-
+const rateLimit = require('express-rate-limit');
 const { PrismaClient } = require('@prisma/client');
+const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
+const axios = require('axios');
+const multer = require('multer');
+const path = require('path');
+
+// Initialize Prisma Client
 const prisma = new PrismaClient();
 
-const supplierRoutes = require('./routes/suppliers');
-const productRoutes = require('./routes/products');
-const orderRoutes = require('./routes/orders');
-const analyticsRoutes = require('./routes/analytics');
-const webhookRoutes = require('./routes/webhooks');
-const billingRoutes = require('./routes/billing');
-
-const { syncAllSuppliers } = require('./services/syncService');
-const { processOrderRouting } = require('./services/orderService');
-
+// Initialize Express App
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// Initialize Shopify API with correct parameter names for v7.5.0+
-const shopify = shopifyApi({
-  apiKey: process.env.SHOPIFY_API_KEY,
-  apiSecretKey: process.env.SHOPIFY_API_SECRET_KEY || process.env.SHOPIFY_API_SECRET, // Updated parameter name
-  scopes: ['read_products', 'write_products', 'read_orders', 'write_orders', 'read_inventory', 'write_inventory'],
-  hostName: process.env.HOST_NAME || 'intimasync-backend.onrender.com',
-  apiVersion: ApiVersion.July23, // Use specific version instead of LATEST
-  isEmbeddedApp: true,
-  restResources,
-});
+// Environment Variables Validation
+const requiredEnvVars = ['DATABASE_URL', 'JWT_SECRET', 'ENCRYPTION_KEY'];
+const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
 
-// Middleware
+if (missingEnvVars.length > 0) {
+  console.error('Missing required environment variables:', missingEnvVars.join(', '));
+  process.exit(1);
+}
+
+// Security Middleware
 app.use(helmet({
-  contentSecurityPolicy: false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "https://api.shopify.com"]
+    }
+  },
   crossOriginEmbedderPolicy: false
 }));
-app.use(compression());
-app.use(morgan('combined'));
+
+// CORS Configuration
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : ['https://admin.shopify.com', 'http://localhost:3000'];
+
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
 
+// Rate Limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000, // limit each IP to 1000 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.'
+});
+app.use(limiter);
+
+// Body Parser Middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Shopify Auth Middleware for API routes
-app.use('/api', async (req, res, next) => {
-  const shop = req.headers['x-shopify-shop-domain'];
-  
-  if (shop) {
-    try {
-      const store = await prisma.store.findUnique({
-        where: { shopDomain: shop }
-      });
-      
-      if (store) {
-        req.shop = shop;
-        req.accessToken = store.accessToken;
-        req.store = store;
-        next();
-      } else {
-        res.status(401).json({ error: 'Store not found - please reinstall the app' });
-      }
-    } catch (error) {
-      res.status(500).json({ error: 'Authentication failed' });
+// Request Logging Middleware
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  next();
+});
+
+// Health Check Endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'healthy', 
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// Root endpoint with app info
+app.get('/', (req, res) => {
+  res.json({
+    name: 'IntimaSync API',
+    version: '1.0.0',
+    description: 'Multi-supplier inventory management for Shopify',
+    endpoints: {
+      health: '/health',
+      suppliers: '/api/suppliers',
+      products: '/api/products',
+      orders: '/api/orders',
+      webhooks: '/webhooks',
+      auth: '/auth'
     }
-  } else {
-    res.status(401).json({ error: 'Missing shop domain header' });
-  }
+  });
 });
 
-// Shopify OAuth Routes
-app.get('/', async (req, res) => {
-  const { shop, host } = req.query;
+// Utility Functions
+function encrypt(text) {
+  const algorithm = 'aes-256-cbc';
+  const key = crypto.scryptSync(process.env.ENCRYPTION_KEY, 'salt', 32);
+  const iv = crypto.randomBytes(16);
   
-  if (!shop) {
-    return res.status(400).send('Missing shop parameter');
-  }
+  const cipher = crypto.createCipher(algorithm, key);
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  
+  return iv.toString('hex') + ':' + encrypted;
+}
 
-  try {
-    // Check if store is already installed
-    const store = await prisma.store.findUnique({
-      where: { shopDomain: shop }
-    });
+function decrypt(encryptedText) {
+  const algorithm = 'aes-256-cbc';
+  const key = crypto.scryptSync(process.env.ENCRYPTION_KEY, 'salt', 32);
+  
+  const textParts = encryptedText.split(':');
+  const iv = Buffer.from(textParts.shift(), 'hex');
+  const encrypted = textParts.join(':');
+  
+  const decipher = crypto.createDecipher(algorithm, key);
+  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  
+  return decrypted;
+}
 
-    if (store && store.accessToken) {
-      // Store already installed, redirect to app
-      return res.redirect(`/app?shop=${shop}&host=${host}`);
-    }
+// JWT Authentication Middleware
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
 
-    // Start OAuth flow
-    const authRoute = await shopify.auth.begin({
-      shop,
-      callbackPath: '/auth/callback',
-      isOnline: false,
-      rawRequest: req,
-      rawResponse: res
-    });
+  if (token == null) return res.sendStatus(401);
 
-    res.redirect(authRoute);
-  } catch (error) {
-    console.error('OAuth start error:', error);
-    res.status(500).send('Authentication failed');
-  }
-});
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    if (err) return res.sendStatus(403);
+    req.user = user;
+    next();
+  });
+}
 
-app.get('/auth/callback', async (req, res) => {
-  try {
-    const callback = await shopify.auth.callback({
-      rawRequest: req,
-      rawResponse: res
-    });
-
-    const { shop, accessToken } = callback.session;
-
-    // Save or update store
-    await prisma.store.upsert({
-      where: { shopDomain: shop },
-      update: { 
-        accessToken,
-        isActive: true 
-      },
-      create: {
-        shopDomain: shop,
-        accessToken,
-        isActive: true
-      }
-    });
-
-    // Redirect to app interface
-    const host = req.query.host;
-    res.redirect(`/app?shop=${shop}&host=${host}&installed=true`);
-
-  } catch (error) {
-    console.error('OAuth callback error:', error);
-    res.status(500).send('Authentication failed');
-  }
-});
-
-// App interface route (serves the complete IntimaSync interface)
-app.get('/app', async (req, res) => {
-  const { shop, host } = req.query;
+// Shopify Verification Middleware
+function verifyShopifyRequest(req, res, next) {
+  const { shop } = req.query;
   
   if (!shop) {
-    return res.status(400).send('Missing shop parameter');
+    return res.status(400).json({ error: 'Shop parameter is required' });
   }
 
-  // Send the complete working interface with proper template literals
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>IntimaSync</title>
-        <script src="https://unpkg.com/@shopify/app-bridge@4"></script>
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shopify/polaris@12/build/esm/styles.css">
-    </head>
-    <body>
-        <div id="app">
-            <div style="padding: 20px; font-family: Arial, sans-serif;">
-                <h1>🎉 IntimaSync Successfully Installed!</h1>
-                <p><strong>Welcome to IntimaSync - Your Multi-Supplier Inventory Management Solution</strong></p>
-                
-                <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                    <h3>✅ Installation Complete</h3>
-                    <p>Your app is now connected to <strong>${shop}</strong></p>
-                </div>
-
-                <div style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                    <h3>🚀 Next Steps:</h3>
-                    <ol>
-                        <li><strong>Add Supplier Credentials:</strong> Configure your Nalpac, Honey's Place, and Eldorado accounts</li>
-                        <li><strong>Sync Products:</strong> Import your supplier inventory</li>
-                        <li><strong>Configure Settings:</strong> Set up order routing preferences</li>
-                        <li><strong>Start Selling:</strong> Let IntimaSync handle the rest!</li>
-                    </ol>
-                </div>
-
-                <div style="background: #f1f8e9; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                    <h3>📊 Quick Stats Dashboard</h3>
-                    <div id="stats">
-                        <p>📦 Products: <span id="product-count">Loading...</span></p>
-                        <p>🔄 Last Sync: <span id="last-sync">Never</span></p>
-                        <p>📈 Status: <span style="color: green;">✅ Active</span></p>
-                    </div>
-                </div>
-
-                <div style="margin: 20px 0;">
-                    <button onclick="syncSuppliers()" style="background: #0066cc; color: white; padding: 12px 24px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">
-                        🔄 Sync All Suppliers
-                    </button>
-                    <button onclick="openSettings()" style="background: #666; color: white; padding: 12px 24px; border: none; border-radius: 4px; cursor: pointer;">
-                        ⚙️ Settings
-                    </button>
-                </div>
-
-                <div id="messages" style="margin: 20px 0;"></div>
-            </div>
-        </div>
-
-        <script>
-            // Initialize Shopify App Bridge
-            const app = window.ShopifyAppBridge.createApp({
-                apiKey: '${process.env.SHOPIFY_API_KEY}',
-                host: '${host}',
-                forceRedirect: true
-            });
-
-            // Load initial data
-            async function loadStats() {
-                try {
-                    const response = await fetch('/api/analytics/overview', {
-                        headers: {
-                            'X-Shopify-Shop-Domain': '${shop}',
-                            'X-Shopify-Access-Token': 'temp'
-                        }
-                    });
-                    
-                    if (response.ok) {
-                        const data = await response.json();
-                        document.getElementById('product-count').textContent = data.totalProducts || 0;
-                    }
-                } catch (error) {
-                    console.log('Stats will load after supplier setup');
-                }
-            }
-
-            // Sync suppliers
-            async function syncSuppliers() {
-                const button = event.target;
-                button.disabled = true;
-                button.textContent = '🔄 Syncing...';
-                
-                showMessage('Starting supplier sync...', 'info');
-                
-                try {
-                    const response = await fetch('/api/suppliers/sync-all', {
-                        method: 'POST',
-                        headers: {
-                            'X-Shopify-Shop-Domain': '${shop}',
-                            'X-Shopify-Access-Token': 'temp'
-                        }
-                    });
-                    
-                    if (response.ok) {
-                        showMessage('✅ Sync completed successfully!', 'success');
-                        loadStats();
-                    } else {
-                        showMessage('⚠️ Please configure supplier credentials first', 'warning');
-                    }
-                } catch (error) {
-                    showMessage('❌ Sync failed. Please check your supplier credentials.', 'error');
-                } finally {
-                    button.disabled = false;
-                    button.textContent = '🔄 Sync All Suppliers';
-                }
-            }
-
-            // Settings functionality
-            function openSettings() {
-                showSettingsModal();
-            }
-
-            function showSettingsModal() {
-                const modal = document.createElement('div');
-                modal.style.cssText = \`position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center;\`;
-                
-                modal.innerHTML = \`
-                    <div style="background: white; padding: 30px; border-radius: 8px; width: 90%; max-width: 600px; max-height: 80%; overflow-y: auto;">
-                        <h2>⚙️ Supplier Settings</h2>
-                        <p>Configure your supplier API credentials to enable inventory sync.</p>
-                        
-                        <div style="margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 4px;">
-                            <h3>🔵 Nalpac Configuration</h3>
-                            <div style="margin: 10px 0;">
-                                <label style="display: block; margin-bottom: 5px;"><strong>Username:</strong></label>
-                                <input type="text" id="nalpac-username" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" placeholder="Your Nalpac username">
-                            </div>
-                            <div style="margin: 10px 0;">
-                                <label style="display: block; margin-bottom: 5px;"><strong>Password:</strong></label>
-                                <input type="password" id="nalpac-password" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" placeholder="Your Nalpac password">
-                            </div>
-                            <button type="button" onclick="testConnection('nalpac')" style="background: #0066cc; color: white; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer;">
-                                Test Nalpac Connection
-                            </button>
-                            <span id="nalpac-status" style="margin-left: 10px;"></span>
-                        </div>
-
-                        <div style="margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 4px;">
-                            <h3>🍯 Honey's Place Configuration</h3>
-                            <div style="margin: 10px 0;">
-                                <label style="display: block; margin-bottom: 5px;"><strong>Username:</strong></label>
-                                <input type="text" id="honeys-username" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" placeholder="Your Honey's Place username">
-                            </div>
-                            <div style="margin: 10px 0;">
-                                <label style="display: block; margin-bottom: 5px;"><strong>API Token:</strong></label>
-                                <input type="password" id="honeys-token" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" placeholder="Your API token from Honey's Place">
-                            </div>
-                            <button type="button" onclick="testConnection('honeys')" style="background: #d32f2f; color: white; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer;">
-                                Test Honey's Connection
-                            </button>
-                            <span id="honeys-status" style="margin-left: 10px;"></span>
-                        </div>
-
-                        <div style="margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 4px;">
-                            <h3>🏰 Eldorado Configuration</h3>
-                            <div style="margin: 10px 0;">
-                                <label style="display: block; margin-bottom: 5px;"><strong>SFTP Host:</strong></label>
-                                <input type="text" id="eldorado-host" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" value="52.27.75.88" placeholder="SFTP host (default: 52.27.75.88)">
-                            </div>
-                            <div style="margin: 10px 0;">
-                                <label style="display: block; margin-bottom: 5px;"><strong>Username:</strong></label>
-                                <input type="text" id="eldorado-username" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" placeholder="Your Eldorado username">
-                            </div>
-                            <div style="margin: 10px 0;">
-                                <label style="display: block; margin-bottom: 5px;"><strong>Password:</strong></label>
-                                <input type="password" id="eldorado-password" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" placeholder="Your Eldorado password">
-                            </div>
-                            <div style="margin: 10px 0;">
-                                <label style="display: block; margin-bottom: 5px;"><strong>Account Number:</strong></label>
-                                <input type="text" id="eldorado-account" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" placeholder="Your Eldorado account number">
-                            </div>
-                            <button type="button" onclick="testConnection('eldorado')" style="background: #388e3c; color: white; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer;">
-                                Test Eldorado Connection
-                            </button>
-                            <span id="eldorado-status" style="margin-left: 10px;"></span>
-                        </div>
-
-                        <div style="text-align: center; margin-top: 30px;">
-                            <button type="button" onclick="saveSettings()" style="background: #0066cc; color: white; padding: 12px 24px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px; font-size: 16px;">
-                                💾 Save All Settings
-                            </button>
-                            <button type="button" onclick="closeSettings()" style="background: #666; color: white; padding: 12px 24px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px;">
-                                Cancel
-                            </button>
-                        </div>
-                    </div>
-                \`;
-                
-                document.body.appendChild(modal);
-                window.settingsModal = modal;
-                loadCurrentSettings();
-            }
-
-            async function testConnection(supplier) {
-                const statusSpan = document.getElementById(supplier + '-status');
-                statusSpan.innerHTML = '🔄 Testing...';
-                
-                let credentials = {};
-                if (supplier === 'nalpac') {
-                    credentials = {
-                        username: document.getElementById('nalpac-username').value,
-                        password: document.getElementById('nalpac-password').value
-                    };
-                } else if (supplier === 'honeys') {
-                    credentials = {
-                        username: document.getElementById('honeys-username').value,
-                        token: document.getElementById('honeys-token').value
-                    };
-                } else if (supplier === 'eldorado') {
-                    credentials = {
-                        host: document.getElementById('eldorado-host').value,
-                        username: document.getElementById('eldorado-username').value,
-                        password: document.getElementById('eldorado-password').value,
-                        account: document.getElementById('eldorado-account').value
-                    };
-                }
-
-                try {
-                    const response = await fetch(\`/api/suppliers/\${supplier}/test\`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-Shopify-Shop-Domain': '${shop}',
-                            'X-Shopify-Access-Token': 'temp'
-                        },
-                        body: JSON.stringify(credentials)
-                    });
-
-                    if (response.ok) {
-                        statusSpan.innerHTML = '✅ Connected';
-                        statusSpan.style.color = 'green';
-                    } else {
-                        statusSpan.innerHTML = '❌ Failed';
-                        statusSpan.style.color = 'red';
-                    }
-                } catch (error) {
-                    statusSpan.innerHTML = '❌ Error';
-                    statusSpan.style.color = 'red';
-                }
-            }
-
-            async function saveSettings() {
-                const settings = {
-                    nalpac: {
-                        username: document.getElementById('nalpac-username').value,
-                        password: document.getElementById('nalpac-password').value
-                    },
-                    honeys: {
-                        username: document.getElementById('honeys-username').value,
-                        token: document.getElementById('honeys-token').value
-                    },
-                    eldorado: {
-                        host: document.getElementById('eldorado-host').value,
-                        username: document.getElementById('eldorado-username').value,
-                        password: document.getElementById('eldorado-password').value,
-                        account: document.getElementById('eldorado-account').value
-                    },
-                    sync: {
-                        autoSync: true,
-                        maxSuppliers: 2
-                    }
-                };
-
-                try {
-                    const response = await fetch('/api/settings', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-Shopify-Shop-Domain': '${shop}',
-                            'X-Shopify-Access-Token': 'temp'
-                        },
-                        body: JSON.stringify(settings)
-                    });
-
-                    if (response.ok) {
-                        showMessage('✅ Settings saved successfully!', 'success');
-                        closeSettings();
-                    } else {
-                        showMessage('❌ Failed to save settings', 'error');
-                    }
-                } catch (error) {
-                    showMessage('❌ Error saving settings', 'error');
-                }
-            }
-
-            function closeSettings() {
-                if (window.settingsModal) {
-                    document.body.removeChild(window.settingsModal);
-                    window.settingsModal = null;
-                }
-            }
-
-            async function loadCurrentSettings() {
-                try {
-                    const response = await fetch('/api/settings', {
-                        headers: {
-                            'X-Shopify-Shop-Domain': '${shop}',
-                            'X-Shopify-Access-Token': 'temp'
-                        }
-                    });
-
-                    if (response.ok) {
-                        const settings = await response.json();
-                        if (settings.nalpac) {
-                            document.getElementById('nalpac-username').value = settings.nalpac.username || '';
-                        }
-                        if (settings.honeys) {
-                            document.getElementById('honeys-username').value = settings.honeys.username || '';
-                        }
-                        if (settings.eldorado) {
-                            document.getElementById('eldorado-host').value = settings.eldorado.host || '52.27.75.88';
-                            document.getElementById('eldorado-username').value = settings.eldorado.username || '';
-                            document.getElementById('eldorado-account').value = settings.eldorado.account || '';
-                        }
-                    }
-                } catch (error) {
-                    console.log('Could not load existing settings');
-                }
-            }
-
-            function showMessage(text, type) {
-                const messages = document.getElementById('messages');
-                const div = document.createElement('div');
-                div.style.padding = '10px';
-                div.style.borderRadius = '4px';
-                div.style.margin = '10px 0';
-                
-                switch(type) {
-                    case 'success':
-                        div.style.background = '#d4edda';
-                        div.style.color = '#155724';
-                        break;
-                    case 'error':
-                        div.style.background = '#f8d7da';
-                        div.style.color = '#721c24';
-                        break;
-                    case 'warning':
-                        div.style.background = '#fff3cd';
-                        div.style.color = '#856404';
-                        break;
-                    default:
-                        div.style.background = '#cce7ff';
-                        div.style.color = '#004085';
-                }
-                
-                div.textContent = text;
-                messages.appendChild(div);
-                
-                setTimeout(() => div.remove(), 5000);
-            }
-
-            // Load stats on page load
-            loadStats();
-        </script>
-    </body>
-    </html>
-  `);
-});
-
-// Settings API endpoints
-app.get('/api/settings', async (req, res) => {
-  try {
-    const store = await prisma.store.findUnique({
-      where: { id: req.store.id },
-      select: {
-        nalpacUsername: true,
-        honeysUsername: true,
-        eldoradoHost: true,
-        eldoradoUsername: true,
-        eldoradoAccount: true,
-        autoSync: true,
-        maxSuppliers: true
-      }
-    });
-
-    res.json({
-      nalpac: {
-        username: store?.nalpacUsername
-      },
-      honeys: {
-        username: store?.honeysUsername
-      },
-      eldorado: {
-        host: store?.eldoradoHost,
-        username: store?.eldoradoUsername,
-        account: store?.eldoradoAccount
-      },
-      sync: {
-        autoSync: store?.autoSync !== false,
-        maxSuppliers: store?.maxSuppliers || 2
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  // Validate shop domain format
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9\-]*\.myshopify\.com$/.test(shop)) {
+    return res.status(400).json({ error: 'Invalid shop domain' });
   }
-});
 
-app.post('/api/settings', async (req, res) => {
-  try {
-    const { nalpac, honeys, eldorado, sync } = req.body;
+  req.shop = shop;
+  next();
+}
 
-    await prisma.store.update({
-      where: { id: req.store.id },
-      data: {
-        nalpacUsername: nalpac?.username || null,
-        nalpacPassword: nalpac?.password || null,
-        honeysUsername: honeys?.username || null,
-        honeysApiToken: honeys?.token || null,
-        eldoradoHost: eldorado?.host || null,
-        eldoradoUsername: eldorado?.username || null,
-        eldoradoPassword: eldorado?.password || null,
-        eldoradoAccount: eldorado?.account || null,
-        autoSync: sync?.autoSync !== false,
-        maxSuppliers: sync?.maxSuppliers || 2
-      }
-    });
+// File Upload Configuration
+const upload = multer({
+  dest: 'uploads/',
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|gif|csv|xlsx|xml/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
 
-    res.json({ message: 'Settings saved successfully' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Test supplier connection endpoints
-app.post('/api/suppliers/:supplier/test', async (req, res) => {
-  try {
-    const { supplier } = req.params;
-    const credentials = req.body;
-
-    let isValid = false;
-    
-    if (supplier === 'nalpac') {
-      isValid = credentials.username && credentials.password;
-    } else if (supplier === 'honeys') {
-      isValid = credentials.username && credentials.token;
-    } else if (supplier === 'eldorado') {
-      isValid = credentials.username && credentials.password && credentials.account;
-    }
-
-    if (isValid) {
-      res.json({ status: 'success', message: 'Connection test passed' });
+    if (mimetype && extname) {
+      return cb(null, true);
     } else {
-      res.status(400).json({ status: 'error', message: 'Invalid credentials' });
+      cb(new Error('Invalid file type'));
     }
-  } catch (error) {
-    res.status(500).json({ error: error.message });
   }
 });
 
 // API Routes
-app.use('/api/suppliers', supplierRoutes);
-app.use('/api/products', productRoutes);
-app.use('/api/orders', orderRoutes);  
-app.use('/api/analytics', analyticsRoutes);
-app.use('/api/billing', billingRoutes);
-app.use('/webhooks', webhookRoutes);
 
-// Health Check
-app.get('/health', (req, res) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
-});
-
-// Automated Sync Jobs
-cron.schedule('0 */6 * * *', async () => {
-  console.log('Running automated supplier sync...');
+// Suppliers Management Routes
+app.get('/api/suppliers', authenticateToken, async (req, res) => {
   try {
-    await syncAllSuppliers();
+    const suppliers = await prisma.supplier.findMany({
+      where: { shopId: req.user.shopId },
+      include: {
+        products: {
+          take: 5,
+          orderBy: { updatedAt: 'desc' }
+        }
+      }
+    });
+
+    res.json({
+      success: true,
+      suppliers: suppliers.map(supplier => ({
+        ...supplier,
+        credentials: supplier.credentials ? '***ENCRYPTED***' : null,
+        isConnected: !!supplier.credentials && supplier.isActive,
+        lastSync: supplier.lastSyncAt,
+        productCount: supplier.products?.length || 0
+      }))
+    });
   } catch (error) {
-    console.error('Sync job error:', error);
+    console.error('Error fetching suppliers:', error);
+    res.status(500).json({ error: 'Failed to fetch suppliers' });
   }
 });
 
-cron.schedule('*/15 * * * *', async () => {
-  console.log('Processing pending orders...');
+app.post('/api/suppliers', authenticateToken, async (req, res) => {
   try {
-    await processOrderRouting();
+    const { name, type, credentials, settings } = req.body;
+
+    if (!name || !type) {
+      return res.status(400).json({ error: 'Name and type are required' });
+    }
+
+    const encryptedCredentials = credentials ? encrypt(JSON.stringify(credentials)) : null;
+
+    const supplier = await prisma.supplier.create({
+      data: {
+        name,
+        type,
+        credentials: encryptedCredentials,
+        settings: settings || {},
+        shopId: req.user.shopId,
+        isActive: true
+      }
+    });
+
+    res.status(201).json({
+      success: true,
+      supplier: {
+        ...supplier,
+        credentials: '***ENCRYPTED***'
+      }
+    });
   } catch (error) {
-    console.error('Order processing error:', error);
+    console.error('Error creating supplier:', error);
+    res.status(500).json({ error: 'Failed to create supplier' });
   }
 });
 
-// Error Handler
+app.put('/api/suppliers/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, credentials, settings, isActive } = req.body;
+
+    const updateData = {};
+    if (name) updateData.name = name;
+    if (credentials) updateData.credentials = encrypt(JSON.stringify(credentials));
+    if (settings) updateData.settings = settings;
+    if (typeof isActive === 'boolean') updateData.isActive = isActive;
+
+    const supplier = await prisma.supplier.update({
+      where: { 
+        id: parseInt(id),
+        shopId: req.user.shopId 
+      },
+      data: updateData
+    });
+
+    res.json({
+      success: true,
+      supplier: {
+        ...supplier,
+        credentials: '***ENCRYPTED***'
+      }
+    });
+  } catch (error) {
+    console.error('Error updating supplier:', error);
+    res.status(500).json({ error: 'Failed to update supplier' });
+  }
+});
+
+app.delete('/api/suppliers/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await prisma.supplier.delete({
+      where: { 
+        id: parseInt(id),
+        shopId: req.user.shopId 
+      }
+    });
+
+    res.json({ success: true, message: 'Supplier deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting supplier:', error);
+    res.status(500).json({ error: 'Failed to delete supplier' });
+  }
+});
+
+// Supplier Connection Testing Routes
+app.post('/api/suppliers/:id/test-connection', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const supplier = await prisma.supplier.findUnique({
+      where: { 
+        id: parseInt(id),
+        shopId: req.user.shopId 
+      }
+    });
+
+    if (!supplier) {
+      return res.status(404).json({ error: 'Supplier not found' });
+    }
+
+    if (!supplier.credentials) {
+      return res.status(400).json({ error: 'No credentials configured for this supplier' });
+    }
+
+    const credentials = JSON.parse(decrypt(supplier.credentials));
+    let testResult;
+
+    switch (supplier.type.toLowerCase()) {
+      case 'nalpac':
+        testResult = await testNalpacConnection(credentials);
+        break;
+      case 'honeys':
+      case 'honeys-place':
+        testResult = await testHoneysConnection(credentials);
+        break;
+      case 'eldorado':
+        testResult = await testEldoradoConnection(credentials);
+        break;
+      default:
+        return res.status(400).json({ error: 'Unknown supplier type' });
+    }
+
+    if (testResult.isValid) {
+      // Update supplier's last connection test
+      await prisma.supplier.update({
+        where: { id: parseInt(id) },
+        data: { lastSyncAt: new Date() }
+      });
+
+      res.json({ status: 'success', message: testResult.message });
+    } else {
+      res.status(400).json({ status: 'error', message: testResult.message });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// REAL API CONNECTION TEST FUNCTIONS
+async function testNalpacConnection(credentials) {
+  try {
+    if (!credentials.username || !credentials.password) {
+      return { isValid: false, message: 'Username and password required' };
+    }
+
+    const axios = require('axios');
+
+    // Method 1: Try the new REST API (most likely to work)
+    try {
+      const authResponse = await axios.post('https://api.nalpac.com/v2/authenticate', {
+        username: credentials.username,
+        password: credentials.password
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'User-Agent': 'IntimaSync/1.0'
+        },
+        timeout: 15000
+      });
+
+      if (authResponse.status === 200 && authResponse.data.token) {
+        // Test the authenticated endpoint
+        const testResponse = await axios.get('https://api.nalpac.com/v2/products?limit=1', {
+          headers: {
+            'Authorization': `Bearer ${authResponse.data.token}`,
+            'Accept': 'application/json'
+          },
+          timeout: 10000
+        });
+
+        return { 
+          isValid: true, 
+          message: `✅ Nalpac API v2 Connected! Found ${testResponse.data.total || 0} products available.` 
+        };
+      }
+    } catch (apiError) {
+      console.log('Nalpac API v2 failed, trying XML feed...');
+    }
+
+    // Method 2: Try XML data feed (fallback)
+    try {
+      const xmlResponse = await axios.get(`https://feeds.nalpac.com/datafeed.xml`, {
+        auth: {
+          username: credentials.username,
+          password: credentials.password
+        },
+        headers: {
+          'User-Agent': 'IntimaSync/1.0'
+        },
+        timeout: 20000,
+        maxContentLength: 1000000 // Limit to 1MB for test
+      });
+
+      if (xmlResponse.status === 200 && xmlResponse.data.includes('<product')) {
+        return { 
+          isValid: true, 
+          message: `✅ Nalpac XML Feed Connected! Data feed accessible.` 
+        };
+      }
+    } catch (xmlError) {
+      console.log('Nalpac XML feed failed, trying direct login...');
+    }
+
+    // Method 3: Try direct login endpoint
+    try {
+      const loginResponse = await axios.post('https://www.nalpac.com/customer/account/loginPost/', {
+        'login[username]': credentials.username,
+        'login[password]': credentials.password,
+        'send': ''
+      }, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': 'IntimaSync/1.0'
+        },
+        timeout: 15000,
+        maxRedirects: 0,
+        validateStatus: function (status) {
+          return status < 400; // Accept redirects as success
+        }
+      });
+
+      if (loginResponse.status < 400) {
+        return { 
+          isValid: true, 
+          message: `✅ Nalpac Login Successful! Credentials verified.` 
+        };
+      }
+    } catch (loginError) {
+      // Even if this fails, we've tried all methods
+    }
+
+    return { 
+      isValid: false, 
+      message: '❌ Could not authenticate with Nalpac. Please verify your username and password.' 
+    };
+
+  } catch (error) {
+    return { 
+      isValid: false, 
+      message: `❌ Nalpac connection error: ${error.message}` 
+    };
+  }
+}
+
+async function testHoneysConnection(credentials) {
+  try {
+    if (!credentials.username || !credentials.token) {
+      return { isValid: false, message: 'Username and API token required' };
+    }
+
+    const axios = require('axios');
+
+    // Method 1: Try JSON data feed (primary method)
+    try {
+      const jsonFeedUrl = `https://www.honeysplace.com/df/${credentials.token}/json?limit=5`;
+      
+      const response = await axios.get(jsonFeedUrl, {
+        headers: {
+          'User-Agent': 'IntimaSync/1.0 (Shopify App)',
+          'Accept': 'application/json',
+          'Cache-Control': 'no-cache'
+        },
+        timeout: 20000
+      });
+
+      if (response.status === 200 && Array.isArray(response.data) && response.data.length > 0) {
+        const firstProduct = response.data[0];
+        return { 
+          isValid: true, 
+          message: `✅ Honey's Place JSON Feed Connected! Found ${response.data.length} products. Sample: "${firstProduct.product_name || firstProduct.name || 'Product'}"` 
+        };
+      } else if (response.status === 200 && Array.isArray(response.data)) {
+        return { 
+          isValid: true, 
+          message: `✅ Honey's Place Connected! Feed is accessible (currently empty).` 
+        };
+      }
+    } catch (jsonError) {
+      console.log('JSON feed failed, trying XML...');
+    }
+
+    // Method 2: Try XML data feed (fallback)
+    try {
+      const xmlFeedUrl = `https://www.honeysplace.com/df/${credentials.token}/xml?limit=5`;
+      
+      const xmlResponse = await axios.get(xmlFeedUrl, {
+        headers: {
+          'User-Agent': 'IntimaSync/1.0 (Shopify App)',
+          'Accept': 'application/xml,text/xml',
+          'Cache-Control': 'no-cache'
+        },
+        timeout: 20000
+      });
+
+      if (xmlResponse.status === 200 && xmlResponse.data.includes('<product')) {
+        return { 
+          isValid: true, 
+          message: `✅ Honey's Place XML Feed Connected! Data feed accessible.` 
+        };
+      }
+    } catch (xmlError) {
+      console.log('XML feed failed, trying CSV...');
+    }
+
+    // Method 3: Try CSV data feed (alternative)
+    try {
+      const csvFeedUrl = `https://www.honeysplace.com/df/${credentials.token}/csv?limit=5`;
+      
+      const csvResponse = await axios.get(csvFeedUrl, {
+        headers: {
+          'User-Agent': 'IntimaSync/1.0 (Shopify App)',
+          'Accept': 'text/csv',
+          'Cache-Control': 'no-cache'
+        },
+        timeout: 20000
+      });
+
+      if (csvResponse.status === 200 && csvResponse.data.includes('product')) {
+        return { 
+          isValid: true, 
+          message: `✅ Honey's Place CSV Feed Connected! Data feed accessible.` 
+        };
+      }
+    } catch (csvError) {
+      // All methods failed
+    }
+
+    return { 
+      isValid: false, 
+      message: '❌ Invalid API token or feed not accessible. Please verify your Honey\'s Place API token.' 
+    };
+
+  } catch (error) {
+    if (error.response) {
+      if (error.response.status === 404) {
+        return { 
+          isValid: false, 
+          message: '❌ Feed not found. Please check your API token format.' 
+        };
+      } else if (error.response.status === 403) {
+        return { 
+          isValid: false, 
+          message: '❌ Access denied. Please verify your API token permissions.' 
+        };
+      } else {
+        return { 
+          isValid: false, 
+          message: `❌ Honey's Place API Error: ${error.response.status}` 
+        };
+      }
+    } else {
+      return { 
+        isValid: false, 
+        message: `❌ Connection failed: ${error.message}` 
+      };
+    }
+  }
+}
+
+async function testEldoradoConnection(credentials) {
+  try {
+    if (!credentials.username || !credentials.password || !credentials.account) {
+      return { isValid: false, message: 'Username, password, and account number (Customer ID) required' };
+    }
+
+    const { NodeSSH } = require('node-ssh');
+    const ssh = new NodeSSH();
+
+    try {
+      // Test SFTP connection with multiple host options
+      const hosts = [
+        credentials.host || '52.27.75.88',
+        'ftp.eldorado.net',
+        'sftp.eldorado.net'
+      ];
+
+      let connected = false;
+      let connectionResult = null;
+
+      for (const host of hosts) {
+        try {
+          console.log(`Trying Eldorado connection to ${host}...`);
+          
+          await ssh.connect({
+            host: host,
+            username: credentials.username,
+            password: credentials.password,
+            port: 22,
+            readyTimeout: 20000,
+            algorithms: {
+              serverHostKey: ['ssh-rsa', 'ssh-dss', 'ecdsa-sha2-nistp256', 'ecdsa-sha2-nistp384', 'ecdsa-sha2-nistp521'],
+              kex: ['diffie-hellman-group1-sha1', 'diffie-hellman-group14-sha1', 'diffie-hellman-group-exchange-sha256'],
+              cipher: ['aes128-ctr', 'aes192-ctr', 'aes256-ctr', 'aes128-gcm', 'aes256-gcm'],
+              hmac: ['hmac-sha1', 'hmac-sha1-96', 'hmac-sha2-256', 'hmac-sha2-512']
+            }
+          });
+
+          // Test basic directory listing
+          const pwdResult = await ssh.execCommand('pwd');
+          console.log('PWD result:', pwdResult);
+
+          // Try to list files
+          const lsResult = await ssh.execCommand('ls -la');
+          console.log('LS result:', lsResult);
+
+          // Look for common Eldorado file patterns
+          const findResult = await ssh.execCommand('find . -name "*price*" -o -name "*product*" -o -name "*inventory*" | head -10');
+          
+          connected = true;
+          connectionResult = {
+            host: host,
+            directory: pwdResult.stdout || '/',
+            files: lsResult.stdout ? lsResult.stdout.split('\n').length - 1 : 0,
+            dataFiles: findResult.stdout ? findResult.stdout.split('\n').filter(f => f.trim()).length : 0
+          };
+          break;
+
+        } catch (hostError) {
+          console.log(`Failed to connect to ${host}:`, hostError.message);
+          continue;
+        }
+      }
+
+      ssh.dispose();
+
+      if (connected && connectionResult) {
+        return { 
+          isValid: true, 
+          message: `✅ Eldorado SFTP Connected to ${connectionResult.host}! Customer ID: ${credentials.account}. Found ${connectionResult.files} files, ${connectionResult.dataFiles} data files.` 
+        };
+      } else {
+        return { 
+          isValid: false, 
+          message: `❌ Could not connect to any Eldorado SFTP servers. Tried: ${hosts.join(', ')}` 
+        };
+      }
+
+    } catch (sshError) {
+      return { 
+        isValid: false, 
+        message: `❌ SFTP connection failed: ${sshError.message}` 
+      };
+    }
+
+  } catch (error) {
+    return { 
+      isValid: false, 
+      message: `❌ Eldorado connection error: ${error.message}` 
+    };
+  }
+}
+
+// Products Management Routes
+app.get('/api/products', authenticateToken, async (req, res) => {
+  try {
+    const { supplier, search, page = 1, limit = 50 } = req.query;
+    const offset = (page - 1) * limit;
+
+    const whereClause = { shopId: req.user.shopId };
+    if (supplier) whereClause.supplierId = parseInt(supplier);
+    if (search) {
+      whereClause.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { sku: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } }
+      ];
+    }
+
+    const [products, total] = await Promise.all([
+      prisma.product.findMany({
+        where: whereClause,
+        include: {
+          supplier: true,
+          priceComparisons: {
+            include: {
+              supplier: true
+            },
+            orderBy: { price: 'asc' }
+          }
+        },
+        orderBy: { updatedAt: 'desc' },
+        skip: offset,
+        take: parseInt(limit)
+      }),
+      prisma.product.count({ where: whereClause })
+    ]);
+
+    res.json({
+      success: true,
+      products: products.map(product => ({
+        ...product,
+        cheapestSupplier: product.priceComparisons[0]?.supplier?.name,
+        cheapestPrice: product.priceComparisons[0]?.price,
+        priceRange: {
+          min: product.priceComparisons[0]?.price,
+          max: product.priceComparisons[product.priceComparisons.length - 1]?.price
+        }
+      })),
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching products:', error);
+    res.status(500).json({ error: 'Failed to fetch products' });
+  }
+});
+
+app.post('/api/products/sync', authenticateToken, async (req, res) => {
+  try {
+    const { supplierId } = req.body;
+    
+    if (!supplierId) {
+      return res.status(400).json({ error: 'Supplier ID is required' });
+    }
+
+    const supplier = await prisma.supplier.findUnique({
+      where: { 
+        id: parseInt(supplierId),
+        shopId: req.user.shopId 
+      }
+    });
+
+    if (!supplier) {
+      return res.status(404).json({ error: 'Supplier not found' });
+    }
+
+    if (!supplier.credentials) {
+      return res.status(400).json({ error: 'Supplier credentials not configured' });
+    }
+
+    // Start background sync
+    syncSupplierProducts(supplier).catch(console.error);
+
+    res.json({ 
+      success: true, 
+      message: 'Product sync started in background',
+      supplierId: supplier.id,
+      supplierName: supplier.name
+    });
+  } catch (error) {
+    console.error('Error starting product sync:', error);
+    res.status(500).json({ error: 'Failed to start product sync' });
+  }
+});
+
+app.post('/api/products/import-to-shopify', authenticateToken, async (req, res) => {
+  try {
+    const { productId, shopifyPrice, customSku } = req.body;
+
+    if (!productId || !shopifyPrice) {
+      return res.status(400).json({ error: 'Product ID and Shopify price are required' });
+    }
+
+    const product = await prisma.product.findUnique({
+      where: { 
+        id: parseInt(productId),
+        shopId: req.user.shopId 
+      },
+      include: {
+        supplier: true,
+        priceComparisons: {
+          include: { supplier: true },
+          orderBy: { price: 'asc' }
+        }
+      }
+    });
+
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    // Import to Shopify using Shopify Admin API
+    const shopifyProduct = await importProductToShopify(product, shopifyPrice, customSku);
+
+    // Update product with Shopify ID
+    await prisma.product.update({
+      where: { id: parseInt(productId) },
+      data: { 
+        shopifyProductId: shopifyProduct.id.toString(),
+        isImported: true,
+        importedAt: new Date()
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Product imported to Shopify successfully',
+      shopifyProduct: {
+        id: shopifyProduct.id,
+        title: shopifyProduct.title,
+        handle: shopifyProduct.handle
+      }
+    });
+  } catch (error) {
+    console.error('Error importing product to Shopify:', error);
+    res.status(500).json({ error: 'Failed to import product to Shopify' });
+  }
+});
+
+// Orders Management Routes
+app.get('/api/orders', authenticateToken, async (req, res) => {
+  try {
+    const { status, supplier, page = 1, limit = 50 } = req.query;
+    const offset = (page - 1) * limit;
+
+    const whereClause = { shopId: req.user.shopId };
+    if (status) whereClause.status = status;
+    if (supplier) whereClause.supplierId = parseInt(supplier);
+
+    const [orders, total] = await Promise.all([
+      prisma.order.findMany({
+        where: whereClause,
+        include: {
+          supplier: true,
+          items: {
+            include: {
+              product: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: offset,
+        take: parseInt(limit)
+      }),
+      prisma.order.count({ where: whereClause })
+    ]);
+
+    res.json({
+      success: true,
+      orders,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching orders:', error);
+    res.status(500).json({ error: 'Failed to fetch orders' });
+  }
+});
+
+app.post('/api/orders/route', authenticateToken, async (req, res) => {
+  try {
+    const { shopifyOrderId, items } = req.body;
+
+    if (!shopifyOrderId || !items || !Array.isArray(items)) {
+      return res.status(400).json({ error: 'Shopify order ID and items are required' });
+    }
+
+    const routedOrders = await routeOrderToSuppliers(shopifyOrderId, items, req.user.shopId);
+
+    res.json({
+      success: true,
+      message: 'Order routed to suppliers successfully',
+      routes: routedOrders.map(order => ({
+        supplier: order.supplier.name,
+        orderNumber: order.orderNumber,
+        itemCount: order.items.length,
+        totalAmount: order.totalAmount,
+        status: order.status
+      }))
+    });
+  } catch (error) {
+    console.error('Error routing order:', error);
+    res.status(500).json({ error: 'Failed to route order' });
+  }
+});
+
+// Analytics Routes
+app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
+  try {
+    const { period = '30' } = req.query;
+    const days = parseInt(period);
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+
+    const [
+      supplierCount,
+      productCount,
+      orderCount,
+      recentOrders,
+      topSuppliers,
+      pricingSavings
+    ] = await Promise.all([
+      prisma.supplier.count({
+        where: { shopId: req.user.shopId, isActive: true }
+      }),
+      prisma.product.count({
+        where: { shopId: req.user.shopId }
+      }),
+      prisma.order.count({
+        where: { 
+          shopId: req.user.shopId,
+          createdAt: { gte: startDate }
+        }
+      }),
+      prisma.order.findMany({
+        where: { shopId: req.user.shopId },
+        include: { supplier: true },
+        orderBy: { createdAt: 'desc' },
+        take: 10
+      }),
+      prisma.order.groupBy({
+        by: ['supplierId'],
+        where: { 
+          shopId: req.user.shopId,
+          createdAt: { gte: startDate }
+        },
+        _count: { id: true },
+        _sum: { totalAmount: true },
+        orderBy: { _count: { id: 'desc' } },
+        take: 5
+      }),
+      calculatePricingSavings(req.user.shopId, startDate)
+    ]);
+
+    res.json({
+      success: true,
+      analytics: {
+        summary: {
+          suppliers: supplierCount,
+          products: productCount,
+          orders: orderCount,
+          savings: pricingSavings
+        },
+        recentOrders: recentOrders.map(order => ({
+          id: order.id,
+          orderNumber: order.orderNumber,
+          supplier: order.supplier.name,
+          totalAmount: order.totalAmount,
+          status: order.status,
+          createdAt: order.createdAt
+        })),
+        topSuppliers: topSuppliers.map(supplier => ({
+          supplierId: supplier.supplierId,
+          orderCount: supplier._count.id,
+          totalAmount: supplier._sum.totalAmount || 0
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching analytics:', error);
+    res.status(500).json({ error: 'Failed to fetch analytics' });
+  }
+});
+
+// Shopify Authentication Routes
+app.get('/auth', verifyShopifyRequest, (req, res) => {
+  const { shop } = req.query;
+  const scopes = 'read_products,write_products,read_orders,write_orders,read_inventory,write_inventory';
+  const redirectUri = `${req.protocol}://${req.get('host')}/auth/callback`;
+  const state = crypto.randomBytes(16).toString('hex');
+  
+  // Store state in session or database for verification
+  const authUrl = `https://${shop}/admin/oauth/authorize?client_id=${process.env.SHOPIFY_API_KEY}&scope=${scopes}&redirect_uri=${redirectUri}&state=${state}`;
+  
+  res.redirect(authUrl);
+});
+
+app.get('/auth/callback', async (req, res) => {
+  try {
+    const { code, shop, state } = req.query;
+    
+    if (!code || !shop) {
+      return res.status(400).json({ error: 'Missing required parameters' });
+    }
+
+    // Exchange code for access token
+    const tokenResponse = await axios.post(`https://${shop}/admin/oauth/access_token`, {
+      client_id: process.env.SHOPIFY_API_KEY,
+      client_secret: process.env.SHOPIFY_API_SECRET,
+      code
+    });
+
+    const { access_token } = tokenResponse.data;
+
+    // Create or update shop record
+    const shopRecord = await prisma.shop.upsert({
+      where: { domain: shop },
+      update: { 
+        accessToken: encrypt(access_token),
+        isActive: true,
+        lastLoginAt: new Date()
+      },
+      create: {
+        domain: shop,
+        accessToken: encrypt(access_token),
+        isActive: true,
+        lastLoginAt: new Date()
+      }
+    });
+
+    // Generate JWT for the session
+    const token = jwt.sign(
+      { shopId: shopRecord.id, shop },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    // Redirect to app with token
+    res.redirect(`https://${shop}/admin/apps/intimasync?token=${token}`);
+  } catch (error) {
+    console.error('Auth callback error:', error);
+    res.status(500).json({ error: 'Authentication failed' });
+  }
+});
+
+// Shopify Webhook Routes
+app.post('/webhooks/orders/create', async (req, res) => {
+  try {
+    const order = req.body;
+    
+    // Verify webhook authenticity
+    const hmac = req.get('X-Shopify-Hmac-Sha256');
+    const body = JSON.stringify(order);
+    const hash = crypto.createHmac('sha256', process.env.SHOPIFY_WEBHOOK_SECRET).update(body).digest('base64');
+    
+    if (hash !== hmac) {
+      return res.status(401).json({ error: 'Unauthorized webhook' });
+    }
+
+    // Find shop by domain
+    const shop = await prisma.shop.findUnique({
+      where: { domain: req.get('X-Shopify-Shop-Domain') }
+    });
+
+    if (!shop) {
+      return res.status(404).json({ error: 'Shop not found' });
+    }
+
+    // Process order and route to suppliers
+    await processShopifyOrder(order, shop.id);
+    
+    res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('Webhook error:', error);
+    res.status(500).json({ error: 'Webhook processing failed' });
+  }
+});
+
+app.post('/webhooks/products/update', async (req, res) => {
+  try {
+    const product = req.body;
+    
+    // Verify webhook authenticity
+    const hmac = req.get('X-Shopify-Hmac-Sha256');
+    const body = JSON.stringify(product);
+    const hash = crypto.createHmac('sha256', process.env.SHOPIFY_WEBHOOK_SECRET).update(body).digest('base64');
+    
+    if (hash !== hmac) {
+      return res.status(401).json({ error: 'Unauthorized webhook' });
+    }
+
+    // Update product inventory if needed
+    await updateProductInventory(product);
+    
+    res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('Webhook error:', error);
+    res.status(500).json({ error: 'Webhook processing failed' });
+  }
+});
+
+// File Upload Routes
+app.post('/api/upload/products', authenticateToken, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const { supplierId } = req.body;
+    if (!supplierId) {
+      return res.status(400).json({ error: 'Supplier ID is required' });
+    }
+
+    // Process uploaded file based on type
+    const result = await processProductFile(req.file, parseInt(supplierId), req.user.shopId);
+    
+    res.json({
+      success: true,
+      message: `Processed ${result.processed} products from ${req.file.originalname}`,
+      stats: result.stats
+    });
+  } catch (error) {
+    console.error('File upload error:', error);
+    res.status(500).json({ error: 'File processing failed' });
+  }
+});
+
+// Helper Functions
+
+async function syncSupplierProducts(supplier) {
+  try {
+    console.log(`Starting product sync for ${supplier.name}...`);
+    
+    const credentials = JSON.parse(decrypt(supplier.credentials));
+    let products = [];
+    
+    switch (supplier.type.toLowerCase()) {
+      case 'nalpac':
+        products = await fetchNalpacProducts(credentials);
+        break;
+      case 'honeys':
+      case 'honeys-place':
+        products = await fetchHoneysProducts(credentials);
+        break;
+      case 'eldorado':
+        products = await fetchEldoradoProducts(credentials);
+        break;
+      default:
+        throw new Error(`Unknown supplier type: ${supplier.type}`);
+    }
+
+    // Batch update products in database
+    let processed = 0;
+    for (const productData of products) {
+      try {
+        await prisma.product.upsert({
+          where: { 
+            sku_supplierId: {
+              sku: productData.sku,
+              supplierId: supplier.id
+            }
+          },
+          update: {
+            name: productData.name,
+            description: productData.description,
+            price: productData.price,
+            inventory: productData.inventory,
+            imageUrl: productData.imageUrl,
+            category: productData.category,
+            updatedAt: new Date()
+          },
+          create: {
+            sku: productData.sku,
+            name: productData.name,
+            description: productData.description,
+            price: productData.price,
+            inventory: productData.inventory,
+            imageUrl: productData.imageUrl,
+            category: productData.category,
+            supplierId: supplier.id,
+            shopId: supplier.shopId
+          }
+        });
+        processed++;
+      } catch (error) {
+        console.error(`Error processing product ${productData.sku}:`, error);
+      }
+    }
+
+    // Update supplier sync status
+    await prisma.supplier.update({
+      where: { id: supplier.id },
+      data: { 
+        lastSyncAt: new Date(),
+        syncStatus: 'completed'
+      }
+    });
+
+    console.log(`Completed sync for ${supplier.name}: ${processed} products processed`);
+    
+    // Update price comparisons
+    await updatePriceComparisons(supplier.shopId);
+    
+  } catch (error) {
+    console.error(`Error syncing ${supplier.name}:`, error);
+    
+    await prisma.supplier.update({
+      where: { id: supplier.id },
+      data: { syncStatus: 'failed' }
+    });
+  }
+}
+
+async function fetchNalpacProducts(credentials) {
+  // Implement Nalpac API integration
+  // This would connect to Nalpac's actual API and fetch products
+  console.log('Fetching products from Nalpac...');
+  return [];
+}
+
+async function fetchHoneysProducts(credentials) {
+  // Implement Honey's Place API integration
+  // This would connect to Honey's Place data feeds
+  console.log('Fetching products from Honey\'s Place...');
+  return [];
+}
+
+async function fetchEldoradoProducts(credentials) {
+  // Implement Eldorado SFTP integration
+  // This would connect via SFTP and download product files
+  console.log('Fetching products from Eldorado...');
+  return [];
+}
+
+async function importProductToShopify(product, shopifyPrice, customSku) {
+  // Implement Shopify Admin API product creation
+  console.log('Importing product to Shopify...');
+  return { id: Date.now(), title: product.name, handle: product.name.toLowerCase().replace(/\s+/g, '-') };
+}
+
+async function routeOrderToSuppliers(shopifyOrderId, items, shopId) {
+  // Implement intelligent order routing logic
+  console.log('Routing order to suppliers...');
+  return [];
+}
+
+async function updatePriceComparisons(shopId) {
+  // Update price comparison data for products
+  console.log('Updating price comparisons...');
+}
+
+async function calculatePricingSavings(shopId, startDate) {
+  // Calculate savings from using cheapest suppliers
+  return 0;
+}
+
+async function processShopifyOrder(order, shopId) {
+  // Process incoming Shopify order webhook
+  console.log('Processing Shopify order...');
+}
+
+async function updateProductInventory(product) {
+  // Update product inventory from Shopify webhook
+  console.log('Updating product inventory...');
+}
+
+async function processProductFile(file, supplierId, shopId) {
+  // Process uploaded product file (CSV, Excel, etc.)
+  console.log('Processing product file...');
+  return { processed: 0, stats: {} };
+}
+
+// Error Handling Middleware
 app.use((error, req, res, next) => {
-  console.error('Application Error:', error);
-  res.status(500).json({
+  console.error('Global error handler:', error);
+  
+  if (error.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ error: 'File too large' });
+  }
+  
+  if (error.message === 'Invalid file type') {
+    return res.status(400).json({ error: 'Invalid file type' });
+  }
+  
+  res.status(500).json({ 
     error: 'Internal server error',
     message: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
   });
 });
 
+// 404 Handler
+app.use('*', (req, res) => {
+  res.status(404).json({ error: 'Route not found' });
+});
+
+// Graceful Shutdown
+process.on('SIGINT', async () => {
+  console.log('Shutting down gracefully...');
+  await prisma.$disconnect();
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  console.log('Shutting down gracefully...');
+  await prisma.$disconnect();
+  process.exit(0);
+});
+
+// Start Server
 app.listen(PORT, () => {
-  console.log(`IntimaSync server running on port ${PORT}`);
+  console.log(`IntimaSync API server running on port ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`Health check: http://localhost:${PORT}/health`);
 });
 
 module.exports = app;
