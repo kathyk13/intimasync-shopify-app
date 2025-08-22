@@ -5,6 +5,8 @@ const { PrismaClient } = require('@prisma/client');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 
 const prisma = new PrismaClient();
 const app = express();
@@ -89,14 +91,20 @@ app.get('/health', (req, res) => {
   });
 });
 
-// SIMPLIFIED APP INTERFACE - NO TEMPLATE LITERALS
+// SERVE STATIC FILES TO AVOID TEMPLATE CORRUPTION
+app.use('/static', express.static(path.join(__dirname, 'public')));
+
+// SIMPLIFIED APP INTERFACE - SERVE AS SEPARATE FILE
 app.get('/app', async (req, res) => {
   const { shop } = req.query;
   
-  const html = `<!DOCTYPE html>
+  // Create the HTML as a static file to avoid corruption
+  const htmlContent = `<!DOCTYPE html>
 <html>
 <head>
   <title>IntimaSync Dashboard</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #fafbfb; color: #212b36; }
@@ -124,6 +132,10 @@ app.get('/app', async (req, res) => {
     .supplier-status { margin: 5px 0; }
     .status-connected { color: green; }
     .status-disconnected { color: red; }
+    .welcome-box { background: #f4f6fa; border-left: 4px solid #5c6ac4; padding: 16px 20px; margin: 16px 0; }
+    .welcome-box h3 { color: #5c6ac4; margin-top: 0; }
+    .welcome-box ol { margin: 12px 0 0 16px; }
+    .welcome-box li { color: #454f5b; margin-bottom: 8px; }
   </style>
 </head>
 <body>
@@ -135,347 +147,384 @@ app.get('/app', async (req, res) => {
     
     <div class="nav">
       <div class="nav-buttons">
-        <button id="welcome-btn" class="active" onclick="showWelcome()">Welcome</button>
-        <button id="suppliers-btn" onclick="showSuppliers()">Suppliers</button>
-        <button id="products-btn" onclick="showProducts()">Products</button>
-        <button id="orders-btn" onclick="showOrders()">Orders</button>
-        <button id="settings-btn" onclick="showSettings()">Settings</button>
+        <button id="welcome-btn" class="active">Welcome</button>
+        <button id="suppliers-btn">Suppliers</button>
+        <button id="products-btn">Products</button>
+        <button id="orders-btn">Orders</button>
+        <button id="settings-btn">Settings</button>
       </div>
     </div>
     
     <div class="content" id="content">
       <h2>Welcome to IntimaSync!</h2>
       <p>Your multi-supplier inventory management system is ready to configure.</p>
-      <h3>Quick Start Guide</h3>
-      <ol>
-        <li>Configure Suppliers: Click "Settings" to add your supplier credentials</li>
-        <li>Test Connections: Verify that all supplier APIs are working</li>
-        <li>Sync Products: Import products from your suppliers</li>
-        <li>Manage Inventory: Use price comparison and intelligent routing</li>
-        <li>Process Orders: Automatic routing to cheapest suppliers</li>
-      </ol>
+      
+      <div class="welcome-box">
+        <h3>Quick Start Guide</h3>
+        <ol>
+          <li>Configure Suppliers: Click "Settings" to add your supplier credentials</li>
+          <li>Test Connections: Verify that all supplier APIs are working</li>
+          <li>Sync Products: Import products from your suppliers</li>
+          <li>Manage Inventory: Use price comparison and intelligent routing</li>
+          <li>Process Orders: Automatic routing to cheapest suppliers</li>
+        </ol>
+      </div>
+      
       <h3>Supported Suppliers</h3>
       <ul>
         <li>Nalpac - REST API Integration with real-time inventory</li>
         <li>Honey's Place - Data Feed Integration (JSON/XML/CSV)</li>
         <li>Eldorado - SFTP Integration with file processing</li>
       </ul>
+      
       <p>Ready to get started? Click "Settings" to configure your first supplier connection.</p>
     </div>
   </div>
   
-  <script>
-    let suppliers = [];
-    let products = [];
-    
-    function setActiveButton(buttonId) {
-      document.querySelectorAll('.nav button').forEach(btn => btn.classList.remove('active'));
-      document.getElementById(buttonId).classList.add('active');
-    }
-    
-    function showWelcome() {
-      setActiveButton('welcome-btn');
-      document.getElementById('content').innerHTML = 
-        '<h2>Welcome to IntimaSync!</h2>' +
-        '<p>Your multi-supplier inventory management system is ready to configure.</p>' +
-        '<h3>Quick Start Guide</h3>' +
-        '<ol>' +
-          '<li>Configure Suppliers: Click "Settings" to add your supplier credentials</li>' +
-          '<li>Test Connections: Verify that all supplier APIs are working</li>' +
-          '<li>Sync Products: Import products from your suppliers</li>' +
-          '<li>Manage Inventory: Use price comparison and intelligent routing</li>' +
-          '<li>Process Orders: Automatic routing to cheapest suppliers</li>' +
-        '</ol>' +
-        '<h3>Supported Suppliers</h3>' +
-        '<ul>' +
-          '<li>Nalpac - REST API Integration</li>' +
-          '<li>Honey\\'s Place - Data Feed Integration</li>' +
-          '<li>Eldorado - SFTP Integration</li>' +
-        '</ul>' +
-        '<p>Ready to get started? Click "Settings" to configure your first supplier connection.</p>';
-    }
-    
-    function showSuppliers() {
-      setActiveButton('suppliers-btn');
-      loadSuppliers();
-      document.getElementById('content').innerHTML = 
-        '<h2>Supplier Management</h2>' +
-        '<p>Configure and manage your supplier connections.</p>' +
-        '<div id="supplier-list"></div>' +
-        '<button class="btn btn-primary" onclick="showSettings()">Configure Suppliers</button>';
-      renderSuppliers();
-    }
-    
-    function showProducts() {
-      setActiveButton('products-btn');
-      document.getElementById('content').innerHTML = 
-        '<h2>Product Management</h2>' +
-        '<p>Sync and manage products from all connected suppliers.</p>' +
-        '<button class="btn btn-success" onclick="syncAllProducts()">Sync All Products</button>' +
-        '<div id="product-list"></div>';
-    }
-    
-    function showOrders() {
-      setActiveButton('orders-btn');
-      document.getElementById('content').innerHTML = 
-        '<h2>Order Management</h2>' +
-        '<p>Intelligent order routing and supplier management.</p>' +
-        '<div id="order-list"></div>';
-    }
-    
-    function showSettings() {
-      setActiveButton('settings-btn');
-      document.getElementById('content').innerHTML = 
-        '<h2>Settings & Configuration</h2>' +
-        '<p>Configure your supplier credentials and test API connections.</p>' +
-        '<div>' +
-          '<h3>Add New Supplier</h3>' +
-          '<button class="btn btn-primary" onclick="showNalpacForm()">Add Nalpac</button>' +
-          '<button class="btn btn-primary" onclick="showHoneysForm()">Add Honey\\'s Place</button>' +
-          '<button class="btn btn-primary" onclick="showEldoradoForm()">Add Eldorado</button>' +
-        '</div>' +
-        '<div id="supplier-forms"></div>' +
-        '<div id="existing-suppliers"></div>';
-      loadSuppliers();
-      renderSuppliers();
-    }
-    
-    function showNalpacForm() {
-      document.getElementById('supplier-forms').innerHTML = 
-        '<div style="border: 1px solid #ccc; padding: 20px; margin: 20px 0; border-radius: 4px;">' +
-          '<h4>Add Nalpac Supplier</h4>' +
-          '<div class="form-group">' +
-            '<label>Username:</label>' +
-            '<input type="text" id="nalpac-username" placeholder="Enter your Nalpac username">' +
-          '</div>' +
-          '<div class="form-group">' +
-            '<label>Password:</label>' +
-            '<input type="password" id="nalpac-password" placeholder="Enter your Nalpac password">' +
-          '</div>' +
-          '<button class="btn btn-success" onclick="addNalpacSupplier()">Add Supplier</button>' +
-          '<button class="btn" onclick="clearForm()">Cancel</button>' +
-        '</div>';
-    }
-    
-    function showHoneysForm() {
-      document.getElementById('supplier-forms').innerHTML = 
-        '<div style="border: 1px solid #ccc; padding: 20px; margin: 20px 0; border-radius: 4px;">' +
-          '<h4>Add Honey\\'s Place Supplier</h4>' +
-          '<div class="form-group">' +
-            '<label>Username:</label>' +
-            '<input type="text" id="honeys-username" placeholder="Enter your Honey\\'s Place username">' +
-          '</div>' +
-          '<div class="form-group">' +
-            '<label>API Token:</label>' +
-            '<input type="text" id="honeys-token" placeholder="Enter your API token">' +
-          '</div>' +
-          '<button class="btn btn-success" onclick="addHoneysSupplier()">Add Supplier</button>' +
-          '<button class="btn" onclick="clearForm()">Cancel</button>' +
-        '</div>';
-    }
-    
-    function showEldoradoForm() {
-      document.getElementById('supplier-forms').innerHTML = 
-        '<div style="border: 1px solid #ccc; padding: 20px; margin: 20px 0; border-radius: 4px;">' +
-          '<h4>Add Eldorado Supplier</h4>' +
-          '<div class="form-group">' +
-            '<label>SFTP Username:</label>' +
-            '<input type="text" id="eldorado-username" placeholder="Enter your SFTP username">' +
-          '</div>' +
-          '<div class="form-group">' +
-            '<label>SFTP Password:</label>' +
-            '<input type="password" id="eldorado-password" placeholder="Enter your SFTP password">' +
-          '</div>' +
-          '<div class="form-group">' +
-            '<label>Account Number:</label>' +
-            '<input type="text" id="eldorado-account" placeholder="Enter your account number">' +
-          '</div>' +
-          '<button class="btn btn-success" onclick="addEldoradoSupplier()">Add Supplier</button>' +
-          '<button class="btn" onclick="clearForm()">Cancel</button>' +
-        '</div>';
-    }
-    
-    function clearForm() {
-      document.getElementById('supplier-forms').innerHTML = '';
-    }
-    
-    async function addNalpacSupplier() {
-      const username = document.getElementById('nalpac-username').value;
-      const password = document.getElementById('nalpac-password').value;
-      
-      if (!username || !password) {
-        alert('Please fill in all fields');
-        return;
-      }
-      
-      const result = await fetch('/api/suppliers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'Nalpac',
-          type: 'nalpac',
-          credentials: { username, password }
-        })
-      });
-      
-      if (result.ok) {
-        alert('Nalpac supplier added successfully!');
-        clearForm();
-        loadSuppliers();
-        renderSuppliers();
-      } else {
-        alert('Failed to add supplier');
-      }
-    }
-    
-    async function addHoneysSupplier() {
-      const username = document.getElementById('honeys-username').value;
-      const token = document.getElementById('honeys-token').value;
-      
-      if (!username || !token) {
-        alert('Please fill in all fields');
-        return;
-      }
-      
-      const result = await fetch('/api/suppliers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'Honeys Place',
-          type: 'honeys',
-          credentials: { username, token }
-        })
-      });
-      
-      if (result.ok) {
-        alert('Honey\\'s Place supplier added successfully!');
-        clearForm();
-        loadSuppliers();
-        renderSuppliers();
-      } else {
-        alert('Failed to add supplier');
-      }
-    }
-    
-    async function addEldoradoSupplier() {
-      const username = document.getElementById('eldorado-username').value;
-      const password = document.getElementById('eldorado-password').value;
-      const account = document.getElementById('eldorado-account').value;
-      
-      if (!username || !password || !account) {
-        alert('Please fill in all fields');
-        return;
-      }
-      
-      const result = await fetch('/api/suppliers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'Eldorado',
-          type: 'eldorado',
-          credentials: { username, password, account }
-        })
-      });
-      
-      if (result.ok) {
-        alert('Eldorado supplier added successfully!');
-        clearForm();
-        loadSuppliers();
-        renderSuppliers();
-      } else {
-        alert('Failed to add supplier');
-      }
-    }
-    
-    async function loadSuppliers() {
-      try {
-        const response = await fetch('/api/suppliers');
-        const data = await response.json();
-        suppliers = data.suppliers || [];
-      } catch (error) {
-        console.error('Failed to load suppliers:', error);
-        suppliers = [];
-      }
-    }
-    
-    function renderSuppliers() {
-      const container = document.getElementById('existing-suppliers');
-      if (!container) return;
-      
-      if (suppliers.length === 0) {
-        container.innerHTML = '<h3>No suppliers configured yet</h3>';
-        return;
-      }
-      
-      let html = '<h3>Configured Suppliers</h3>';
-      suppliers.forEach(supplier => {
-        html += '<div class="supplier-card">' +
-          '<h4>' + supplier.name + ' (' + supplier.type + ')</h4>' +
-          '<div class="supplier-status">Status: <span class="' + (supplier.isConnected ? 'status-connected' : 'status-disconnected') + '">' +
-          (supplier.isConnected ? 'Connected' : 'Not Connected') + '</span></div>' +
-          '<button class="btn btn-primary" onclick="testConnection(' + supplier.id + ')">Test Connection</button>' +
-          '<button class="btn btn-danger" onclick="removeSupplier(' + supplier.id + ')">Remove</button>' +
-          '<div id="test-result-' + supplier.id + '" style="margin-top: 10px;"></div>' +
-        '</div>';
-      });
-      
-      container.innerHTML = html;
-    }
-    
-    async function testConnection(supplierId) {
-      const resultDiv = document.getElementById('test-result-' + supplierId);
-      if (resultDiv) {
-        resultDiv.innerHTML = 'Testing connection...';
-      }
-      
-      try {
-        const response = await fetch('/api/suppliers/' + supplierId + '/test-connection', {
-          method: 'POST'
-        });
-        const data = await response.json();
-        
-        if (resultDiv) {
-          if (data.success) {
-            resultDiv.innerHTML = '<span style="color: green;">✅ ' + data.message + '</span>';
-          } else {
-            resultDiv.innerHTML = '<span style="color: red;">❌ ' + data.message + '</span>';
-          }
-        }
-      } catch (error) {
-        if (resultDiv) {
-          resultDiv.innerHTML = '<span style="color: red;">❌ Connection test failed</span>';
-        }
-      }
-    }
-    
-    async function removeSupplier(supplierId) {
-      if (!confirm('Are you sure you want to remove this supplier?')) return;
-      
-      try {
-        const response = await fetch('/api/suppliers/' + supplierId, {
-          method: 'DELETE'
-        });
-        
-        if (response.ok) {
-          alert('Supplier removed successfully!');
-          loadSuppliers();
-          renderSuppliers();
-        } else {
-          alert('Failed to remove supplier');
-        }
-      } catch (error) {
-        alert('Failed to remove supplier');
-      }
-    }
-    
-    function syncAllProducts() {
-      alert('Product sync feature coming soon!');
-    }
-  </script>
+  <script src="/static/app.js"></script>
 </body>
 </html>`;
 
-  res.send(html);
+  res.send(htmlContent);
+});
+
+// Create the JavaScript file separately to avoid corruption
+app.get('/static/app.js', (req, res) => {
+  res.setHeader('Content-Type', 'application/javascript');
+  res.send(`
+let suppliers = [];
+let products = [];
+
+// Set up event listeners
+document.addEventListener('DOMContentLoaded', function() {
+  document.getElementById('welcome-btn').addEventListener('click', showWelcome);
+  document.getElementById('suppliers-btn').addEventListener('click', showSuppliers);
+  document.getElementById('products-btn').addEventListener('click', showProducts);
+  document.getElementById('orders-btn').addEventListener('click', showOrders);
+  document.getElementById('settings-btn').addEventListener('click', showSettings);
+  
+  // Load initial data
+  loadSuppliers();
+});
+
+function setActiveButton(buttonId) {
+  document.querySelectorAll('.nav button').forEach(btn => btn.classList.remove('active'));
+  document.getElementById(buttonId).classList.add('active');
+}
+
+function showWelcome() {
+  setActiveButton('welcome-btn');
+  document.getElementById('content').innerHTML = 
+    '<h2>Welcome to IntimaSync!</h2>' +
+    '<p>Your multi-supplier inventory management system is ready to configure.</p>' +
+    '<div class="welcome-box">' +
+      '<h3>Quick Start Guide</h3>' +
+      '<ol>' +
+        '<li>Configure Suppliers: Click "Settings" to add your supplier credentials</li>' +
+        '<li>Test Connections: Verify that all supplier APIs are working</li>' +
+        '<li>Sync Products: Import products from your suppliers</li>' +
+        '<li>Manage Inventory: Use price comparison and intelligent routing</li>' +
+        '<li>Process Orders: Automatic routing to cheapest suppliers</li>' +
+      '</ol>' +
+    '</div>' +
+    '<h3>Supported Suppliers</h3>' +
+    '<ul>' +
+      '<li>Nalpac - REST API Integration</li>' +
+      '<li>Honey\\'s Place - Data Feed Integration</li>' +
+      '<li>Eldorado - SFTP Integration</li>' +
+    '</ul>' +
+    '<p>Ready to get started? Click "Settings" to configure your first supplier connection.</p>';
+}
+
+function showSuppliers() {
+  setActiveButton('suppliers-btn');
+  loadSuppliers();
+  document.getElementById('content').innerHTML = 
+    '<h2>Supplier Management</h2>' +
+    '<p>Configure and manage your supplier connections.</p>' +
+    '<div id="supplier-list"></div>' +
+    '<button class="btn btn-primary" onclick="showSettings()">Configure Suppliers</button>';
+  renderSuppliers();
+}
+
+function showProducts() {
+  setActiveButton('products-btn');
+  document.getElementById('content').innerHTML = 
+    '<h2>Product Management</h2>' +
+    '<p>Sync and manage products from all connected suppliers.</p>' +
+    '<button class="btn btn-success" onclick="syncAllProducts()">Sync All Products</button>' +
+    '<div id="product-list"></div>';
+}
+
+function showOrders() {
+  setActiveButton('orders-btn');
+  document.getElementById('content').innerHTML = 
+    '<h2>Order Management</h2>' +
+    '<p>Intelligent order routing and supplier management.</p>' +
+    '<div id="order-list"></div>';
+}
+
+function showSettings() {
+  setActiveButton('settings-btn');
+  document.getElementById('content').innerHTML = 
+    '<h2>Settings & Configuration</h2>' +
+    '<p>Configure your supplier credentials and test API connections.</p>' +
+    '<div>' +
+      '<h3>Add New Supplier</h3>' +
+      '<button class="btn btn-primary" onclick="showNalpacForm()">Add Nalpac</button>' +
+      '<button class="btn btn-primary" onclick="showHoneysForm()">Add Honey\\'s Place</button>' +
+      '<button class="btn btn-primary" onclick="showEldoradoForm()">Add Eldorado</button>' +
+    '</div>' +
+    '<div id="supplier-forms"></div>' +
+    '<div id="existing-suppliers"></div>';
+  loadSuppliers();
+  renderSuppliers();
+}
+
+function showNalpacForm() {
+  document.getElementById('supplier-forms').innerHTML = 
+    '<div style="border: 1px solid #ccc; padding: 20px; margin: 20px 0; border-radius: 4px;">' +
+      '<h4>Add Nalpac Supplier</h4>' +
+      '<div class="form-group">' +
+        '<label>Username:</label>' +
+        '<input type="text" id="nalpac-username" placeholder="Enter your Nalpac username">' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label>Password:</label>' +
+        '<input type="password" id="nalpac-password" placeholder="Enter your Nalpac password">' +
+      '</div>' +
+      '<button class="btn btn-success" onclick="addNalpacSupplier()">Add Supplier</button>' +
+      '<button class="btn" onclick="clearForm()">Cancel</button>' +
+    '</div>';
+}
+
+function showHoneysForm() {
+  document.getElementById('supplier-forms').innerHTML = 
+    '<div style="border: 1px solid #ccc; padding: 20px; margin: 20px 0; border-radius: 4px;">' +
+      '<h4>Add Honey\\'s Place Supplier</h4>' +
+      '<div class="form-group">' +
+        '<label>Username:</label>' +
+        '<input type="text" id="honeys-username" placeholder="Enter your Honey\\'s Place username">' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label>API Token:</label>' +
+        '<input type="text" id="honeys-token" placeholder="Enter your API token">' +
+      '</div>' +
+      '<button class="btn btn-success" onclick="addHoneysSupplier()">Add Supplier</button>' +
+      '<button class="btn" onclick="clearForm()">Cancel</button>' +
+    '</div>';
+}
+
+function showEldoradoForm() {
+  document.getElementById('supplier-forms').innerHTML = 
+    '<div style="border: 1px solid #ccc; padding: 20px; margin: 20px 0; border-radius: 4px;">' +
+      '<h4>Add Eldorado Supplier</h4>' +
+      '<div class="form-group">' +
+        '<label>SFTP Username:</label>' +
+        '<input type="text" id="eldorado-username" placeholder="Enter your SFTP username">' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label>SFTP Password:</label>' +
+        '<input type="password" id="eldorado-password" placeholder="Enter your SFTP password">' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label>Account Number:</label>' +
+        '<input type="text" id="eldorado-account" placeholder="Enter your account number">' +
+      '</div>' +
+      '<button class="btn btn-success" onclick="addEldoradoSupplier()">Add Supplier</button>' +
+      '<button class="btn" onclick="clearForm()">Cancel</button>' +
+    '</div>';
+}
+
+function clearForm() {
+  document.getElementById('supplier-forms').innerHTML = '';
+}
+
+async function addNalpacSupplier() {
+  const username = document.getElementById('nalpac-username').value;
+  const password = document.getElementById('nalpac-password').value;
+  
+  if (!username || !password) {
+    alert('Please fill in all fields');
+    return;
+  }
+  
+  try {
+    const response = await fetch('/api/suppliers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Nalpac',
+        type: 'nalpac',
+        credentials: { username, password }
+      })
+    });
+    
+    if (response.ok) {
+      alert('Nalpac supplier added successfully!');
+      clearForm();
+      loadSuppliers();
+      renderSuppliers();
+    } else {
+      alert('Failed to add supplier');
+    }
+  } catch (error) {
+    alert('Error adding supplier: ' + error.message);
+  }
+}
+
+async function addHoneysSupplier() {
+  const username = document.getElementById('honeys-username').value;
+  const token = document.getElementById('honeys-token').value;
+  
+  if (!username || !token) {
+    alert('Please fill in all fields');
+    return;
+  }
+  
+  try {
+    const response = await fetch('/api/suppliers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Honeys Place',
+        type: 'honeys',
+        credentials: { username, token }
+      })
+    });
+    
+    if (response.ok) {
+      alert('Honey\\'s Place supplier added successfully!');
+      clearForm();
+      loadSuppliers();
+      renderSuppliers();
+    } else {
+      alert('Failed to add supplier');
+    }
+  } catch (error) {
+    alert('Error adding supplier: ' + error.message);
+  }
+}
+
+async function addEldoradoSupplier() {
+  const username = document.getElementById('eldorado-username').value;
+  const password = document.getElementById('eldorado-password').value;
+  const account = document.getElementById('eldorado-account').value;
+  
+  if (!username || !password || !account) {
+    alert('Please fill in all fields');
+    return;
+  }
+  
+  try {
+    const response = await fetch('/api/suppliers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Eldorado',
+        type: 'eldorado',
+        credentials: { username, password, account }
+      })
+    });
+    
+    if (response.ok) {
+      alert('Eldorado supplier added successfully!');
+      clearForm();
+      loadSuppliers();
+      renderSuppliers();
+    } else {
+      alert('Failed to add supplier');
+    }
+  } catch (error) {
+    alert('Error adding supplier: ' + error.message);
+  }
+}
+
+async function loadSuppliers() {
+  try {
+    const response = await fetch('/api/suppliers');
+    const data = await response.json();
+    suppliers = data.suppliers || [];
+  } catch (error) {
+    console.error('Failed to load suppliers:', error);
+    suppliers = [];
+  }
+}
+
+function renderSuppliers() {
+  const container = document.getElementById('existing-suppliers');
+  if (!container) return;
+  
+  if (suppliers.length === 0) {
+    container.innerHTML = '<h3>No suppliers configured yet</h3>';
+    return;
+  }
+  
+  let html = '<h3>Configured Suppliers</h3>';
+  suppliers.forEach(supplier => {
+    html += '<div class="supplier-card">' +
+      '<h4>' + supplier.name + ' (' + supplier.type + ')</h4>' +
+      '<div class="supplier-status">Status: <span class="' + (supplier.isConnected ? 'status-connected' : 'status-disconnected') + '">' +
+      (supplier.isConnected ? 'Connected' : 'Not Connected') + '</span></div>' +
+      '<button class="btn btn-primary" onclick="testConnection(' + supplier.id + ')">Test Connection</button>' +
+      '<button class="btn btn-danger" onclick="removeSupplier(' + supplier.id + ')">Remove</button>' +
+      '<div id="test-result-' + supplier.id + '" style="margin-top: 10px;"></div>' +
+    '</div>';
+  });
+  
+  container.innerHTML = html;
+}
+
+async function testConnection(supplierId) {
+  const resultDiv = document.getElementById('test-result-' + supplierId);
+  if (resultDiv) {
+    resultDiv.innerHTML = 'Testing connection...';
+  }
+  
+  try {
+    const response = await fetch('/api/suppliers/' + supplierId + '/test-connection', {
+      method: 'POST'
+    });
+    const data = await response.json();
+    
+    if (resultDiv) {
+      if (data.success) {
+        resultDiv.innerHTML = '<span style="color: green;">✅ ' + data.message + '</span>';
+      } else {
+        resultDiv.innerHTML = '<span style="color: red;">❌ ' + data.message + '</span>';
+      }
+    }
+  } catch (error) {
+    if (resultDiv) {
+      resultDiv.innerHTML = '<span style="color: red;">❌ Connection test failed</span>';
+    }
+  }
+}
+
+async function removeSupplier(supplierId) {
+  if (!confirm('Are you sure you want to remove this supplier?')) return;
+  
+  try {
+    const response = await fetch('/api/suppliers/' + supplierId, {
+      method: 'DELETE'
+    });
+    
+    if (response.ok) {
+      alert('Supplier removed successfully!');
+      loadSuppliers();
+      renderSuppliers();
+    } else {
+      alert('Failed to remove supplier');
+    }
+  } catch (error) {
+    alert('Failed to remove supplier');
+  }
+}
+
+function syncAllProducts() {
+  alert('Product sync feature coming soon!');
+}
+`);
 });
 
 // API ROUTES
