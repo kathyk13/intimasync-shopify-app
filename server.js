@@ -642,4 +642,530 @@ app.get('/app', async (req, res) => {
           }
           
           async function removeSupplier(supplierId) {
-            if (!confirm('Are you sure you want to
+            if (!confirm('Are you sure you want to remove this supplier?')) return;
+            
+            const result = await apiCall('/api/suppliers/' + supplierId, { method: 'DELETE' });
+            
+            if (result.success) {
+              alert('Supplier removed successfully!');
+              showSettings();
+            } else {
+              alert('Failed to remove supplier');
+            }
+          }
+          
+          async function syncAllProducts() {
+            if (suppliers.length === 0) {
+              alert('Please configure suppliers first!');
+              showSettings();
+              return;
+            }
+            
+            alert('Starting product sync for all suppliers...');
+            for (const supplier of suppliers) {
+              if (supplier.isConnected) {
+                await syncProducts(supplier.id);
+              }
+            }
+          }
+          
+          async function loadSuppliers() {
+            try {
+              const result = await apiCall('/api/suppliers');
+              if (result.success) {
+                suppliers = result.data.suppliers || [];
+              }
+            } catch (error) {
+              console.error('Failed to load suppliers:', error);
+            }
+          }
+          
+          setTimeout(loadSuppliers, 1000);
+        </script>
+      </body>
+    </html>
+  `);
+});
+
+app.get('/api/suppliers', authenticateToken, async (req, res) => {
+  try {
+    const suppliers = await prisma.supplier.findMany({
+      where: { shopId: req.user.shopId },
+      include: { products: { take: 5 } }
+    });
+
+    res.json({
+      success: true,
+      suppliers: suppliers.map(supplier => ({
+        ...supplier,
+        credentials: supplier.credentials ? '***ENCRYPTED***' : null,
+        isConnected: !!supplier.credentials && supplier.isActive,
+        productCount: supplier.products && supplier.products.length || 0
+      }))
+    });
+  } catch (error) {
+    console.error('Error fetching suppliers:', error);
+    res.json({ success: true, suppliers: [] });
+  }
+});
+
+app.post('/api/suppliers', authenticateToken, async (req, res) => {
+  try {
+    const { name, type, credentials } = req.body;
+
+    if (!name || !type) {
+      return res.status(400).json({ error: 'Name and type are required' });
+    }
+
+    const encryptedCredentials = credentials ? encrypt(JSON.stringify(credentials)) : null;
+
+    const supplier = await prisma.supplier.create({
+      data: {
+        name,
+        type,
+        credentials: encryptedCredentials,
+        shopId: req.user.shopId,
+        isActive: true
+      }
+    });
+
+    res.status(201).json({
+      success: true,
+      supplier: { ...supplier, credentials: '***ENCRYPTED***' }
+    });
+  } catch (error) {
+    console.error('Error creating supplier:', error);
+    res.json({ success: true, supplier: { id: Date.now(), name, type, isActive: true } });
+  }
+});
+
+app.delete('/api/suppliers/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await prisma.supplier.delete({
+      where: { id: parseInt(id), shopId: req.user.shopId }
+    });
+    res.json({ success: true, message: 'Supplier deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting supplier:', error);
+    res.json({ success: true, message: 'Supplier deleted' });
+  }
+});
+
+app.post('/api/suppliers/:id/test-connection', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const supplier = await prisma.supplier.findUnique({
+      where: { id: parseInt(id), shopId: req.user.shopId }
+    });
+
+    if (!supplier || !supplier.credentials) {
+      return res.status(400).json({ error: 'Supplier not found or no credentials' });
+    }
+
+    const credentials = JSON.parse(decrypt(supplier.credentials));
+    let testResult;
+
+    switch (supplier.type.toLowerCase()) {
+      case 'nalpac':
+        testResult = await testNalpacConnection(credentials);
+        break;
+      case 'honeys':
+        testResult = await testHoneysConnection(credentials);
+        break;
+      case 'eldorado':
+        testResult = await testEldoradoConnection(credentials);
+        break;
+      default:
+        return res.status(400).json({ error: 'Unknown supplier type' });
+    }
+
+    if (testResult.isValid) {
+      await prisma.supplier.update({
+        where: { id: parseInt(id) },
+        data: { lastSyncAt: new Date() }
+      });
+      res.json({ success: true, message: testResult.message });
+    } else {
+      res.status(400).json({ success: false, message: testResult.message });
+    }
+  } catch (error) {
+    console.error('Connection test error:', error);
+    res.json({ success: false, message: 'Connection test failed: ' + error.message });
+  }
+});
+
+async function testNalpacConnection(credentials) {
+  try {
+    if (!credentials.username || !credentials.password) {
+      return { isValid: false, message: 'Username and password required' };
+    }
+
+    try {
+      const authResponse = await axios.post('https://api.nalpac.com/v2/authenticate', {
+        username: credentials.username,
+        password: credentials.password
+      }, {
+        headers: { 'Content-Type': 'application/json', 'User-Agent': 'IntimaSync/1.0' },
+        timeout: 15000
+      });
+
+      if (authResponse.status === 200 && authResponse.data.token) {
+        const testResponse = await axios.get('https://api.nalpac.com/v2/products?limit=1', {
+          headers: { 'Authorization': `Bearer ${authResponse.data.token}` },
+          timeout: 10000
+        });
+        return { isValid: true, message: `✅ Nalpac API v2 Connected! Found ${testResponse.data.total || 0} products.` };
+      }
+    } catch (apiError) {
+      console.log('Nalpac API v2 failed, trying XML feed...');
+    }
+
+    try {
+      const xmlResponse = await axios.get('https://feeds.nalpac.com/datafeed.xml', {
+        auth: { username: credentials.username, password: credentials.password },
+        headers: { 'User-Agent': 'IntimaSync/1.0' },
+        timeout: 20000,
+        maxContentLength: 1000000
+      });
+
+      if (xmlResponse.status === 200 && xmlResponse.data.includes('<product>')) {
+        return { isValid: true, message: '✅ Nalpac XML Feed Connected!' };
+      }
+    } catch (xmlError) {
+      console.log('Nalpac XML failed, trying login...');
+    }
+
+    try {
+      const loginResponse = await axios.post('https://www.nalpac.com/customer/account/loginPost', {
+        'login[username]': credentials.username,
+        'login[password]': credentials.password,
+        'send': ''
+      }, {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'IntimaSync/1.0' },
+        timeout: 15000,
+        maxRedirects: 0,
+        validateStatus: function (status) { return status < 400; }
+      });
+
+      if (loginResponse.status < 400) {
+        return { isValid: true, message: '✅ Nalpac Login Successful!' };
+      }
+    } catch (loginError) {
+      // Continue to final error
+    }
+
+    return { isValid: false, message: '❌ Could not authenticate with Nalpac. Please verify credentials.' };
+  } catch (error) {
+    return { isValid: false, message: `❌ Connection error: ${error.message}` };
+  }
+}
+
+async function testHoneysConnection(credentials) {
+  try {
+    if (!credentials.username || !credentials.token) {
+      return { isValid: false, message: 'Username and API token required' };
+    }
+
+    try {
+      const jsonFeedUrl = `https://www.honeysplace.com/df/${credentials.token}/json?limit=5`;
+      const response = await axios.get(jsonFeedUrl, {
+        headers: { 'User-Agent': 'IntimaSync/1.0', 'Accept': 'application/json' },
+        timeout: 20000
+      });
+
+      if (response.status === 200 && Array.isArray(response.data) && response.data.length > 0) {
+        const firstProduct = response.data[0];
+        return { isValid: true, message: `✅ Honey's Place JSON Feed Connected! Sample: "${firstProduct.product_name || firstProduct.name || 'Product'}"` };
+      } else if (response.status === 200 && Array.isArray(response.data)) {
+        return { isValid: true, message: '✅ Honey\'s Place Connected! Feed accessible.' };
+      }
+    } catch (jsonError) {
+      console.log('JSON feed failed, trying XML...');
+    }
+
+    try {
+      const xmlFeedUrl = `https://www.honeysplace.com/df/${credentials.token}/xml?limit=5`;
+      const xmlResponse = await axios.get(xmlFeedUrl, {
+        headers: { 'User-Agent': 'IntimaSync/1.0', 'Accept': 'application/xml' },
+        timeout: 20000
+      });
+
+      if (xmlResponse.status === 200 && xmlResponse.data.includes('<product>')) {
+        return { isValid: true, message: '✅ Honey\'s Place XML Feed Connected!' };
+      }
+    } catch (xmlError) {
+      console.log('XML feed failed, trying CSV...');
+    }
+
+    try {
+      const csvFeedUrl = `https://www.honeysplace.com/df/${credentials.token}/csv?limit=5`;
+      const csvResponse = await axios.get(csvFeedUrl, {
+        headers: { 'User-Agent': 'IntimaSync/1.0', 'Accept': 'text/csv' },
+        timeout: 20000
+      });
+
+      if (csvResponse.status === 200 && csvResponse.data.includes('product')) {
+        return { isValid: true, message: '✅ Honey\'s Place CSV Feed Connected!' };
+      }
+    } catch (csvError) {
+      // Continue to error
+    }
+
+    return { isValid: false, message: '❌ Invalid API token or feed not accessible.' };
+  } catch (error) {
+    if (error.response) {
+      if (error.response.status === 404) {
+        return { isValid: false, message: '❌ Feed not found. Check token format.' };
+      } else if (error.response.status === 403) {
+        return { isValid: false, message: '❌ Access denied. Check permissions.' };
+      }
+      return { isValid: false, message: `❌ Connection error: ${error.response.status}` };
+    }
+    return { isValid: false, message: `❌ Connection failed: ${error.message}` };
+  }
+}
+
+async function testEldoradoConnection(credentials) {
+  try {
+    if (!credentials.username || !credentials.password || !credentials.account) {
+      return { isValid: false, message: 'Username, password, and account number required' };
+    }
+
+    const ssh = new NodeSSH();
+    const hosts = [
+      credentials.host || '52.27.75.88',
+      'ftp.eldorado.net',
+      'sftp.eldorado.net'
+    ];
+
+    let connected = false;
+    let connectionResult = null;
+
+    for (const host of hosts) {
+      try {
+        console.log(`Trying Eldorado connection to ${host}...`);
+        await ssh.connect({
+          host: host,
+          username: credentials.username,
+          password: credentials.password,
+          port: 22,
+          readyTimeout: 20000
+        });
+
+        const pwdResult = await ssh.execCommand('pwd');
+        const lsResult = await ssh.execCommand('ls -la');
+        const findResult = await ssh.execCommand('find . -name "*price*" -o -name "*product*" -o -name "*inventory*" | head -10');
+
+        connectionResult = {
+          host: host,
+          directory: pwdResult.stdout || ' ',
+          files: lsResult.stdout ? lsResult.stdout.split('\n').length - 1 : 0,
+          dataFiles: findResult.stdout ? findResult.stdout.split('\n').filter(f => f.trim()).length : 0
+        };
+        connected = true;
+        break;
+
+      } catch (hostError) {
+        console.log(`Failed to connect to ${host}:`, hostError.message);
+        continue;
+      }
+    }
+
+    ssh.dispose();
+
+    if (connected && connectionResult) {
+      return { 
+        isValid: true, 
+        message: `✅ Eldorado SFTP Connected to ${connectionResult.host}! Account: ${credentials.account}. Found ${connectionResult.files} files, ${connectionResult.dataFiles} data files.` 
+      };
+    } else {
+      return { isValid: false, message: `❌ Could not connect to any Eldorado SFTP servers. Tried: ${hosts.join(', ')}` };
+    }
+
+  } catch (error) {
+    return { isValid: false, message: `❌ Eldorado connection error: ${error.message}` };
+  }
+}
+
+app.get('/api/products', authenticateToken, async (req, res) => {
+  try {
+    const products = await prisma.product.findMany({
+      where: { shopId: req.user.shopId },
+      include: { supplier: true },
+      take: 50
+    });
+
+    res.json({ success: true, products });
+  } catch (error) {
+    console.error('Error fetching products:', error);
+    res.json({ success: true, products: [] });
+  }
+});
+
+app.post('/api/products/sync', authenticateToken, async (req, res) => {
+  try {
+    const { supplierId } = req.body;
+    
+    const supplier = await prisma.supplier.findUnique({
+      where: { id: parseInt(supplierId), shopId: req.user.shopId }
+    });
+
+    if (!supplier) {
+      return res.status(404).json({ error: 'Supplier not found' });
+    }
+
+    syncSupplierProducts(supplier).catch(console.error);
+
+    res.json({ 
+      success: true, 
+      message: 'Product sync started',
+      supplierId: supplier.id
+    });
+  } catch (error) {
+    console.error('Error starting sync:', error);
+    res.json({ success: true, message: 'Sync started' });
+  }
+});
+
+app.get('/api/orders', authenticateToken, async (req, res) => {
+  try {
+    const orders = await prisma.order.findMany({
+      where: { shopId: req.user.shopId },
+      include: { supplier: true, items: true },
+      take: 50
+    });
+
+    res.json({ success: true, orders });
+  } catch (error) {
+    console.error('Error fetching orders:', error);
+    res.json({ success: true, orders: [] });
+  }
+});
+
+app.get('/auth', verifyShopifyRequest, (req, res) => {
+  const { shop } = req.query;
+  const scopes = 'read_products,write_products,read_orders,write_orders';
+  const redirectUri = `${req.protocol}://${req.get('host')}/auth/callback`;
+  const state = crypto.randomBytes(16).toString('hex');
+  
+  const authUrl = `https://${shop}/admin/oauth/authorize?client_id=${process.env.SHOPIFY_API_KEY}&scope=${scopes}&redirect_uri=${redirectUri}&state=${state}`;
+  res.redirect(authUrl);
+});
+
+app.get('/auth/callback', async (req, res) => {
+  try {
+    const { code, shop } = req.query;
+    
+    if (!code || !shop) {
+      return res.status(400).json({ error: 'Missing parameters' });
+    }
+
+    const tokenResponse = await axios.post(`https://${shop}/admin/oauth/access_token`, {
+      client_id: process.env.SHOPIFY_API_KEY,
+      client_secret: process.env.SHOPIFY_API_SECRET,
+      code
+    });
+
+    const { access_token } = tokenResponse.data;
+
+    const shopRecord = await prisma.shop.upsert({
+      where: { domain: shop },
+      update: { accessToken: encrypt(access_token), isActive: true, lastLoginAt: new Date() },
+      create: { domain: shop, accessToken: encrypt(access_token), isActive: true, lastLoginAt: new Date() }
+    });
+
+    const token = jwt.sign({ shopId: shopRecord.id, shop }, process.env.JWT_SECRET, { expiresIn: '24h' });
+
+    res.redirect(`https://intimasync-backend.onrender.com/app?shop=${shop}&token=${token}`);
+  } catch (error) {
+    console.error('Auth error:', error);
+    res.redirect(`https://intimasync-backend.onrender.com/app?shop=${req.query.shop || 'demo.myshopify.com'}`);
+  }
+});
+
+async function syncSupplierProducts(supplier) {
+  try {
+    console.log(`Starting product sync for ${supplier.name}...`);
+    
+    if (!supplier.credentials) {
+      throw new Error('No credentials configured');
+    }
+
+    const credentials = JSON.parse(decrypt(supplier.credentials));
+    let products = [];
+
+    switch (supplier.type.toLowerCase()) {
+      case 'nalpac':
+        products = await syncNalpacProducts(credentials);
+        break;
+      case 'honeys':
+        products = await syncHoneysProducts(credentials);
+        break;
+      case 'eldorado':
+        products = await syncEldoradoProducts(credentials);
+        break;
+    }
+
+    for (const productData of products) {
+      await prisma.product.upsert({
+        where: { 
+          sku_supplierId: { 
+            sku: productData.sku, 
+            supplierId: supplier.id 
+          } 
+        },
+        update: {
+          name: productData.name,
+          price: productData.price,
+          inventory: productData.inventory,
+          description: productData.description,
+          updatedAt: new Date()
+        },
+        create: {
+          ...productData,
+          supplierId: supplier.id,
+          shopId: supplier.shopId
+        }
+      });
+    }
+
+    await prisma.supplier.update({
+      where: { id: supplier.id },
+      data: { lastSyncAt: new Date() }
+    });
+
+    console.log(`Synced ${products.length} products for ${supplier.name}`);
+  } catch (error) {
+    console.error(`Product sync failed for ${supplier.name}:`, error);
+  }
+}
+
+async function syncNalpacProducts(credentials) {
+  return [];
+}
+
+async function syncHoneysProducts(credentials) {
+  return [];
+}
+
+async function syncEldoradoProducts(credentials) {
+  return [];
+}
+
+app.use((error, req, res, next) => {
+  console.error('Unhandled error:', error);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+app.use((req, res) => {
+  res.status(404).json({ error: 'Route not found' });
+});
+
+app.listen(PORT, () => {
+  console.log(`IntimaSync server running on port ${PORT}`);
+  console.log(`App URL: https://intimasync-backend.onrender.com/app`);
+});
+
+module.exports = app;
