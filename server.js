@@ -1,13 +1,10 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
 const { PrismaClient } = require('@prisma/client');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
-const multer = require('multer');
-const path = require('path');
 
 const prisma = new PrismaClient();
 const app = express();
@@ -38,11 +35,6 @@ app.use(helmet({
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-  next();
-});
 
 function encrypt(text) {
   const algorithm = 'aes-256-cbc';
@@ -97,10 +89,11 @@ app.get('/health', (req, res) => {
   });
 });
 
+// SIMPLIFIED APP INTERFACE - NO TEMPLATE LITERALS
 app.get('/app', async (req, res) => {
   const { shop } = req.query;
   
-  res.send(`<!DOCTYPE html>
+  const html = `<!DOCTYPE html>
 <html>
 <head>
   <title>IntimaSync Dashboard</title>
@@ -120,15 +113,17 @@ app.get('/app', async (req, res) => {
     .content h2 { color: #212b36; margin-bottom: 16px; font-size: 20px; }
     .content h3 { color: #212b36; margin: 20px 0 12px 0; font-size: 16px; }
     .content p { color: #637381; line-height: 1.5; margin-bottom: 12px; }
-    .content ul { margin: 12px 0 12px 20px; }
-    .content li { color: #637381; margin-bottom: 8px; }
-    .credentials-box { background: #f6f6f7; border: 1px solid #e1e3e5; padding: 16px; border-radius: 4px; margin: 16px 0; }
-    .credentials-box h4 { color: #212b36; margin-bottom: 12px; font-size: 14px; font-weight: 600; }
-    .credentials-box p { color: #454f5b; margin-bottom: 8px; font-size: 14px; }
-    .welcome-steps { background: #f4f6fa; border-left: 4px solid #5c6ac4; padding: 16px 20px; margin: 16px 0; }
-    .welcome-steps h3 { color: #5c6ac4; margin-top: 0; }
-    .welcome-steps ol { margin: 12px 0 0 16px; }
-    .welcome-steps li { color: #454f5b; margin-bottom: 8px; }
+    .form-group { margin: 15px 0; }
+    .form-group label { display: block; margin-bottom: 5px; font-weight: 500; }
+    .form-group input { width: 100%; max-width: 300px; padding: 8px 12px; border: 1px solid #c4cdd5; border-radius: 4px; }
+    .btn { padding: 10px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; margin: 5px; }
+    .btn-primary { background: #5c6ac4; color: white; }
+    .btn-success { background: #28a745; color: white; }
+    .btn-danger { background: #dc3545; color: white; }
+    .supplier-card { border: 1px solid #e1e3e5; padding: 15px; margin: 10px 0; border-radius: 4px; background: white; }
+    .supplier-status { margin: 5px 0; }
+    .status-connected { color: green; }
+    .status-disconnected { color: red; }
   </style>
 </head>
 <body>
@@ -151,46 +146,27 @@ app.get('/app', async (req, res) => {
     <div class="content" id="content">
       <h2>Welcome to IntimaSync!</h2>
       <p>Your multi-supplier inventory management system is ready to configure.</p>
-      
-      <div class="welcome-steps">
-        <h3>Quick Start Guide</h3>
-        <ol>
-          <li><strong>Configure Suppliers:</strong> Click "Settings" to add your supplier credentials</li>
-          <li><strong>Test Connections:</strong> Verify that all supplier APIs are working</li>
-          <li><strong>Sync Products:</strong> Import products from your suppliers</li>
-          <li><strong>Manage Inventory:</strong> Use price comparison and intelligent routing</li>
-          <li><strong>Process Orders:</strong> Automatic routing to cheapest suppliers</li>
-        </ol>
-      </div>
-      
+      <h3>Quick Start Guide</h3>
+      <ol>
+        <li>Configure Suppliers: Click "Settings" to add your supplier credentials</li>
+        <li>Test Connections: Verify that all supplier APIs are working</li>
+        <li>Sync Products: Import products from your suppliers</li>
+        <li>Manage Inventory: Use price comparison and intelligent routing</li>
+        <li>Process Orders: Automatic routing to cheapest suppliers</li>
+      </ol>
       <h3>Supported Suppliers</h3>
       <ul>
-        <li><strong>Nalpac</strong> - REST API Integration with real-time inventory</li>
-        <li><strong>Honey's Place</strong> - Data Feed Integration (JSON/XML/CSV)</li>
-        <li><strong>Eldorado</strong> - SFTP Integration with file processing</li>
+        <li>Nalpac - REST API Integration with real-time inventory</li>
+        <li>Honey's Place - Data Feed Integration (JSON/XML/CSV)</li>
+        <li>Eldorado - SFTP Integration with file processing</li>
       </ul>
-      
-      <p><strong>Ready to get started?</strong> Click "Settings" to configure your first supplier connection.</p>
+      <p>Ready to get started? Click "Settings" to configure your first supplier connection.</p>
     </div>
   </div>
   
   <script>
     let suppliers = [];
     let products = [];
-    
-    async function apiCall(endpoint, options = {}) {
-      try {
-        const response = await fetch(window.location.origin + endpoint, {
-          headers: { 'Content-Type': 'application/json' },
-          ...options
-        });
-        const data = await response.json();
-        return { success: response.ok, data };
-      } catch (error) {
-        console.error('API call failed:', error);
-        return { success: false, error: error.message };
-      }
-    }
     
     function setActiveButton(buttonId) {
       document.querySelectorAll('.nav button').forEach(btn => btn.classList.remove('active'));
@@ -202,60 +178,49 @@ app.get('/app', async (req, res) => {
       document.getElementById('content').innerHTML = 
         '<h2>Welcome to IntimaSync!</h2>' +
         '<p>Your multi-supplier inventory management system is ready to configure.</p>' +
-        '<div class="welcome-steps">' +
-          '<h3>Quick Start Guide</h3>' +
-          '<ol>' +
-            '<li><strong>Configure Suppliers:</strong> Click "Settings" to add your supplier credentials</li>' +
-            '<li><strong>Test Connections:</strong> Verify that all supplier APIs are working</li>' +
-            '<li><strong>Sync Products:</strong> Import products from your suppliers</li>' +
-            '<li><strong>Manage Inventory:</strong> Use price comparison and intelligent routing</li>' +
-            '<li><strong>Process Orders:</strong> Automatic routing to cheapest suppliers</li>' +
-          '</ol>' +
-        '</div>' +
+        '<h3>Quick Start Guide</h3>' +
+        '<ol>' +
+          '<li>Configure Suppliers: Click "Settings" to add your supplier credentials</li>' +
+          '<li>Test Connections: Verify that all supplier APIs are working</li>' +
+          '<li>Sync Products: Import products from your suppliers</li>' +
+          '<li>Manage Inventory: Use price comparison and intelligent routing</li>' +
+          '<li>Process Orders: Automatic routing to cheapest suppliers</li>' +
+        '</ol>' +
         '<h3>Supported Suppliers</h3>' +
         '<ul>' +
-          '<li><strong>Nalpac</strong> - REST API Integration with real-time inventory</li>' +
-          '<li><strong>Honey\'s Place</strong> - Data Feed Integration (JSON/XML/CSV)</li>' +
-          '<li><strong>Eldorado</strong> - SFTP Integration with file processing</li>' +
+          '<li>Nalpac - REST API Integration</li>' +
+          '<li>Honey\\'s Place - Data Feed Integration</li>' +
+          '<li>Eldorado - SFTP Integration</li>' +
         '</ul>' +
-        '<p><strong>Ready to get started?</strong> Click "Settings" to configure your first supplier connection.</p>';
+        '<p>Ready to get started? Click "Settings" to configure your first supplier connection.</p>';
     }
     
-    async function showSuppliers() {
+    function showSuppliers() {
       setActiveButton('suppliers-btn');
-      const result = await apiCall('/api/suppliers');
-      suppliers = result.success ? result.data.suppliers || [] : [];
-      
+      loadSuppliers();
       document.getElementById('content').innerHTML = 
         '<h2>Supplier Management</h2>' +
         '<p>Configure and manage your supplier connections.</p>' +
-        '<div><h3>Suppliers (' + suppliers.length + ')</h3></div>' +
-        '<button onclick="showSettings()" style="background: #5c6ac4; color: white; border: none; padding: 12px 20px; border-radius: 4px; cursor: pointer; margin: 20px 0;">Configure Suppliers</button>' +
-        (suppliers.length === 0 ? '<p>No suppliers configured yet.</p>' : '');
+        '<div id="supplier-list"></div>' +
+        '<button class="btn btn-primary" onclick="showSettings()">Configure Suppliers</button>';
+      renderSuppliers();
     }
     
-    async function showProducts() {
+    function showProducts() {
       setActiveButton('products-btn');
-      const result = await apiCall('/api/products');
-      products = result.success ? result.data.products || [] : [];
-      
       document.getElementById('content').innerHTML = 
         '<h2>Product Management</h2>' +
         '<p>Sync and manage products from all connected suppliers.</p>' +
-        '<div><h3>Products (' + products.length + ')</h3></div>' +
-        (products.length === 0 ? '<p>No products found. Configure suppliers first.</p>' : '');
+        '<button class="btn btn-success" onclick="syncAllProducts()">Sync All Products</button>' +
+        '<div id="product-list"></div>';
     }
     
-    async function showOrders() {
+    function showOrders() {
       setActiveButton('orders-btn');
-      const result = await apiCall('/api/orders');
-      const orders = result.success ? result.data.orders || [] : [];
-      
       document.getElementById('content').innerHTML = 
         '<h2>Order Management</h2>' +
         '<p>Intelligent order routing and supplier management.</p>' +
-        '<div><h3>Orders (' + orders.length + ')</h3></div>' +
-        (orders.length === 0 ? '<p>No orders found.</p>' : '');
+        '<div id="order-list"></div>';
     }
     
     function showSettings() {
@@ -263,89 +228,222 @@ app.get('/app', async (req, res) => {
       document.getElementById('content').innerHTML = 
         '<h2>Settings & Configuration</h2>' +
         '<p>Configure your supplier credentials and test API connections.</p>' +
-        '<div style="margin: 20px 0;">' +
-          '<button onclick="addSupplier(\'nalpac\')" style="background: #5c6ac4; color: white; border: none; padding: 12px 20px; border-radius: 4px; margin-right: 10px; cursor: pointer;">Add Nalpac</button>' +
-          '<button onclick="addSupplier(\'honeys\')" style="background: #5c6ac4; color: white; border: none; padding: 12px 20px; border-radius: 4px; margin-right: 10px; cursor: pointer;">Add Honey\'s Place</button>' +
-          '<button onclick="addSupplier(\'eldorado\')" style="background: #5c6ac4; color: white; border: none; padding: 12px 20px; border-radius: 4px; cursor: pointer;">Add Eldorado</button>' +
+        '<div>' +
+          '<h3>Add New Supplier</h3>' +
+          '<button class="btn btn-primary" onclick="showNalpacForm()">Add Nalpac</button>' +
+          '<button class="btn btn-primary" onclick="showHoneysForm()">Add Honey\\'s Place</button>' +
+          '<button class="btn btn-primary" onclick="showEldoradoForm()">Add Eldorado</button>' +
         '</div>' +
-        '<div class="credentials-box">' +
-          '<h4>Supplier Credentials Required:</h4>' +
-          '<p><strong>Nalpac:</strong> Username and Password</p>' +
-          '<p><strong>Honey\'s Place:</strong> Username and API Token</p>' +
-          '<p><strong>Eldorado:</strong> SFTP Username, Password, and Account Number</p>' +
-        '</div>' +
-        '<div id="supplier-list"></div>';
-        
+        '<div id="supplier-forms"></div>' +
+        '<div id="existing-suppliers"></div>';
       loadSuppliers();
+      renderSuppliers();
+    }
+    
+    function showNalpacForm() {
+      document.getElementById('supplier-forms').innerHTML = 
+        '<div style="border: 1px solid #ccc; padding: 20px; margin: 20px 0; border-radius: 4px;">' +
+          '<h4>Add Nalpac Supplier</h4>' +
+          '<div class="form-group">' +
+            '<label>Username:</label>' +
+            '<input type="text" id="nalpac-username" placeholder="Enter your Nalpac username">' +
+          '</div>' +
+          '<div class="form-group">' +
+            '<label>Password:</label>' +
+            '<input type="password" id="nalpac-password" placeholder="Enter your Nalpac password">' +
+          '</div>' +
+          '<button class="btn btn-success" onclick="addNalpacSupplier()">Add Supplier</button>' +
+          '<button class="btn" onclick="clearForm()">Cancel</button>' +
+        '</div>';
+    }
+    
+    function showHoneysForm() {
+      document.getElementById('supplier-forms').innerHTML = 
+        '<div style="border: 1px solid #ccc; padding: 20px; margin: 20px 0; border-radius: 4px;">' +
+          '<h4>Add Honey\\'s Place Supplier</h4>' +
+          '<div class="form-group">' +
+            '<label>Username:</label>' +
+            '<input type="text" id="honeys-username" placeholder="Enter your Honey\\'s Place username">' +
+          '</div>' +
+          '<div class="form-group">' +
+            '<label>API Token:</label>' +
+            '<input type="text" id="honeys-token" placeholder="Enter your API token">' +
+          '</div>' +
+          '<button class="btn btn-success" onclick="addHoneysSupplier()">Add Supplier</button>' +
+          '<button class="btn" onclick="clearForm()">Cancel</button>' +
+        '</div>';
+    }
+    
+    function showEldoradoForm() {
+      document.getElementById('supplier-forms').innerHTML = 
+        '<div style="border: 1px solid #ccc; padding: 20px; margin: 20px 0; border-radius: 4px;">' +
+          '<h4>Add Eldorado Supplier</h4>' +
+          '<div class="form-group">' +
+            '<label>SFTP Username:</label>' +
+            '<input type="text" id="eldorado-username" placeholder="Enter your SFTP username">' +
+          '</div>' +
+          '<div class="form-group">' +
+            '<label>SFTP Password:</label>' +
+            '<input type="password" id="eldorado-password" placeholder="Enter your SFTP password">' +
+          '</div>' +
+          '<div class="form-group">' +
+            '<label>Account Number:</label>' +
+            '<input type="text" id="eldorado-account" placeholder="Enter your account number">' +
+          '</div>' +
+          '<button class="btn btn-success" onclick="addEldoradoSupplier()">Add Supplier</button>' +
+          '<button class="btn" onclick="clearForm()">Cancel</button>' +
+        '</div>';
+    }
+    
+    function clearForm() {
+      document.getElementById('supplier-forms').innerHTML = '';
+    }
+    
+    async function addNalpacSupplier() {
+      const username = document.getElementById('nalpac-username').value;
+      const password = document.getElementById('nalpac-password').value;
+      
+      if (!username || !password) {
+        alert('Please fill in all fields');
+        return;
+      }
+      
+      const result = await fetch('/api/suppliers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Nalpac',
+          type: 'nalpac',
+          credentials: { username, password }
+        })
+      });
+      
+      if (result.ok) {
+        alert('Nalpac supplier added successfully!');
+        clearForm();
+        loadSuppliers();
+        renderSuppliers();
+      } else {
+        alert('Failed to add supplier');
+      }
+    }
+    
+    async function addHoneysSupplier() {
+      const username = document.getElementById('honeys-username').value;
+      const token = document.getElementById('honeys-token').value;
+      
+      if (!username || !token) {
+        alert('Please fill in all fields');
+        return;
+      }
+      
+      const result = await fetch('/api/suppliers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Honeys Place',
+          type: 'honeys',
+          credentials: { username, token }
+        })
+      });
+      
+      if (result.ok) {
+        alert('Honey\\'s Place supplier added successfully!');
+        clearForm();
+        loadSuppliers();
+        renderSuppliers();
+      } else {
+        alert('Failed to add supplier');
+      }
+    }
+    
+    async function addEldoradoSupplier() {
+      const username = document.getElementById('eldorado-username').value;
+      const password = document.getElementById('eldorado-password').value;
+      const account = document.getElementById('eldorado-account').value;
+      
+      if (!username || !password || !account) {
+        alert('Please fill in all fields');
+        return;
+      }
+      
+      const result = await fetch('/api/suppliers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Eldorado',
+          type: 'eldorado',
+          credentials: { username, password, account }
+        })
+      });
+      
+      if (result.ok) {
+        alert('Eldorado supplier added successfully!');
+        clearForm();
+        loadSuppliers();
+        renderSuppliers();
+      } else {
+        alert('Failed to add supplier');
+      }
     }
     
     async function loadSuppliers() {
-      const result = await apiCall('/api/suppliers');
-      suppliers = result.success ? result.data.suppliers || [] : [];
-      
-      const container = document.getElementById('supplier-list');
-      if (container && suppliers.length > 0) {
-        container.innerHTML = '<h3>Configured Suppliers</h3>' +
-          suppliers.map(supplier => 
-            '<div style="border: 1px solid #e1e3e5; padding: 15px; margin: 10px 0; border-radius: 4px;">' +
-              '<h4>' + supplier.name + ' (' + supplier.type + ')</h4>' +
-              '<p>Status: ' + (supplier.isConnected ? '✅ Connected' : '❌ Not Connected') + '</p>' +
-              '<button onclick="testConnection(' + supplier.id + ')" style="background: #0084ff; color: white; border: none; padding: 8px 16px; border-radius: 4px; margin-right: 10px; cursor: pointer;">Test Connection</button>' +
-              '<button onclick="removeSupplier(' + supplier.id + ')" style="background: #dc3545; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">Remove</button>' +
-              '<div id="test-result-' + supplier.id + '" style="margin-top: 10px;"></div>' +
-            '</div>'
-          ).join('');
+      try {
+        const response = await fetch('/api/suppliers');
+        const data = await response.json();
+        suppliers = data.suppliers || [];
+      } catch (error) {
+        console.error('Failed to load suppliers:', error);
+        suppliers = [];
       }
     }
     
-    async function addSupplier(type) {
-      const name = type.charAt(0).toUpperCase() + type.slice(1);
-      let credentials = {};
+    function renderSuppliers() {
+      const container = document.getElementById('existing-suppliers');
+      if (!container) return;
       
-      if (type === 'nalpac') {
-        const username = prompt('Enter your Nalpac Username:');
-        const password = prompt('Enter your Nalpac Password:');
-        if (!username || !password) return;
-        credentials = { username, password };
-      } else if (type === 'honeys') {
-        const username = prompt('Enter your Honey\'s Place Username:');
-        const token = prompt('Enter your Honey\'s Place API Token:');
-        if (!username || !token) return;
-        credentials = { username, token };
-      } else if (type === 'eldorado') {
-        const username = prompt('Enter your Eldorado SFTP Username:');
-        const password = prompt('Enter your Eldorado SFTP Password:');
-        const account = prompt('Enter your Eldorado Account Number:');
-        if (!username || !password || !account) return;
-        credentials = { username, password, account };
+      if (suppliers.length === 0) {
+        container.innerHTML = '<h3>No suppliers configured yet</h3>';
+        return;
       }
       
-      const result = await apiCall('/api/suppliers', {
-        method: 'POST',
-        body: JSON.stringify({ name, type, credentials })
+      let html = '<h3>Configured Suppliers</h3>';
+      suppliers.forEach(supplier => {
+        html += '<div class="supplier-card">' +
+          '<h4>' + supplier.name + ' (' + supplier.type + ')</h4>' +
+          '<div class="supplier-status">Status: <span class="' + (supplier.isConnected ? 'status-connected' : 'status-disconnected') + '">' +
+          (supplier.isConnected ? 'Connected' : 'Not Connected') + '</span></div>' +
+          '<button class="btn btn-primary" onclick="testConnection(' + supplier.id + ')">Test Connection</button>' +
+          '<button class="btn btn-danger" onclick="removeSupplier(' + supplier.id + ')">Remove</button>' +
+          '<div id="test-result-' + supplier.id + '" style="margin-top: 10px;"></div>' +
+        '</div>';
       });
       
-      if (result.success) {
-        alert('Supplier added successfully!');
-        loadSuppliers();
-      } else {
-        alert('Failed to add supplier: ' + (result.error || 'Unknown error'));
-      }
+      container.innerHTML = html;
     }
     
     async function testConnection(supplierId) {
       const resultDiv = document.getElementById('test-result-' + supplierId);
       if (resultDiv) {
-        resultDiv.innerHTML = '<p>🔄 Testing connection...</p>';
+        resultDiv.innerHTML = 'Testing connection...';
       }
       
-      const result = await apiCall('/api/suppliers/' + supplierId + '/test-connection', { method: 'POST' });
-      
-      if (resultDiv) {
-        if (result.success) {
-          resultDiv.innerHTML = '<p style="color: green">✅ ' + (result.data.message || 'Connection successful!') + '</p>';
-        } else {
-          resultDiv.innerHTML = '<p style="color: red">❌ ' + (result.data && result.data.message ? result.data.message : result.error || 'Connection failed') + '</p>';
+      try {
+        const response = await fetch('/api/suppliers/' + supplierId + '/test-connection', {
+          method: 'POST'
+        });
+        const data = await response.json();
+        
+        if (resultDiv) {
+          if (data.success) {
+            resultDiv.innerHTML = '<span style="color: green;">✅ ' + data.message + '</span>';
+          } else {
+            resultDiv.innerHTML = '<span style="color: red;">❌ ' + data.message + '</span>';
+          }
+        }
+      } catch (error) {
+        if (resultDiv) {
+          resultDiv.innerHTML = '<span style="color: red;">❌ Connection test failed</span>';
         }
       }
     }
@@ -353,21 +451,34 @@ app.get('/app', async (req, res) => {
     async function removeSupplier(supplierId) {
       if (!confirm('Are you sure you want to remove this supplier?')) return;
       
-      const result = await apiCall('/api/suppliers/' + supplierId, { method: 'DELETE' });
-      
-      if (result.success) {
-        alert('Supplier removed successfully!');
-        loadSuppliers();
-      } else {
+      try {
+        const response = await fetch('/api/suppliers/' + supplierId, {
+          method: 'DELETE'
+        });
+        
+        if (response.ok) {
+          alert('Supplier removed successfully!');
+          loadSuppliers();
+          renderSuppliers();
+        } else {
+          alert('Failed to remove supplier');
+        }
+      } catch (error) {
         alert('Failed to remove supplier');
       }
     }
+    
+    function syncAllProducts() {
+      alert('Product sync feature coming soon!');
+    }
   </script>
 </body>
-</html>`);
+</html>`;
+
+  res.send(html);
 });
 
-// API Routes
+// API ROUTES
 app.get('/api/suppliers', authenticateToken, async (req, res) => {
   try {
     res.json({ success: true, suppliers: [] });
