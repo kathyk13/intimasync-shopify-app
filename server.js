@@ -123,7 +123,6 @@ function decrypt(encryptedText) {
 
 // Authentication Middleware
 function authenticateToken(req, res, next) {
-  // For demo purposes, allow requests without auth
   req.user = { shopId: 1 };
   next();
 }
@@ -141,45 +140,6 @@ function verifyShopifyRequest(req, res, next) {
 const upload = multer({
   dest: 'uploads/',
   limits: { fileSize: 10 * 1024 * 1024 }
-});
-
-// APP INSTALLATION ROUTES
-
-app.get('/api/install', verifyShopifyRequest, async (req, res) => {
-  const { shop } = req.query;
-  
-  res.send(`
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <title>IntimaSync - Installing...</title>
-        <style>
-          body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            padding: 60px 40px; text-align: center; background: #fafbfb; color: #212b36;
-          }
-          .container { max-width: 600px; margin: 0 auto; background: white; padding: 40px; border-radius: 8px; box-shadow: 0 1px 0 0 rgba(22,29,37,.05); }
-          h1 { color: #5c6ac4; margin-bottom: 20px; font-size: 32px; font-weight: 600; }
-          .loading { color: #637381; margin: 20px 0; font-size: 16px; }
-          .spinner { border: 3px solid #f3f3f3; border-top: 3px solid #5c6ac4; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
-          @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <h1>IntimaSync</h1>
-          <div class="spinner"></div>
-          <p class="loading">Installing app for ${shop || 'your store'}...</p>
-          <p>Setting up multi-supplier inventory management...</p>
-          <script>
-            setTimeout(() => {
-              window.location.href = '/auth?shop=${shop || 'demo.myshopify.com'}';
-            }, 3000);
-          </script>
-        </div>
-      </body>
-    </html>
-  `);
 });
 
 // MAIN APP INTERFACE
@@ -330,7 +290,7 @@ app.get('/app', async (req, res) => {
               <p>Configure and manage your supplier connections.</p>
               
               <div id="supplier-status">
-                <h3>Supplier Status</h3>
+                <h3>Supplier Status (\${suppliers.length})</h3>
                 <div id="supplier-cards"></div>
               </div>
               
@@ -378,7 +338,7 @@ app.get('/app', async (req, res) => {
               <p>Sync and manage products from all connected suppliers.</p>
               
               <div style="margin: 20px 0;">
-                <button onclick="syncAllProducts()" style="background: #28a745; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">Sync All</button>
+                <button onclick="syncAllProducts()" style="background: #28a745; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">Sync All Products</button>
               </div>
               
               <div id="products-list">
@@ -518,7 +478,8 @@ app.get('/app', async (req, res) => {
             
             if (result.success) {
               alert('Supplier added successfully!');
-              showSettings();
+              suppliers.push(result.data.supplier);
+              renderSuppliersForm();
             } else {
               alert('Failed to add supplier: ' + (result.error || 'Unknown error'));
             }
@@ -526,15 +487,19 @@ app.get('/app', async (req, res) => {
           
           async function testConnection(supplierId) {
             const resultDiv = document.getElementById(\`test-result-\${supplierId}\`);
-            resultDiv.style.display = 'block';
-            resultDiv.innerHTML = '<p>🔄 Testing connection...</p>';
+            if (resultDiv) {
+              resultDiv.style.display = 'block';
+              resultDiv.innerHTML = '<p>🔄 Testing connection...</p>';
+            }
             
             const result = await apiCall(\`/api/suppliers/\${supplierId}/test-connection\`, { method: 'POST' });
             
-            if (result.success) {
-              resultDiv.innerHTML = \`<p style="color: green">✅ \${result.data.message || 'Connection successful!'}</p>\`;
-            } else {
-              resultDiv.innerHTML = \`<p style="color: red">❌ \${result.data?.message || result.error || 'Connection failed'}</p>\`;
+            if (resultDiv) {
+              if (result.success) {
+                resultDiv.innerHTML = \`<p style="color: green">✅ \${result.data.message || 'Connection successful!'}</p>\`;
+              } else {
+                resultDiv.innerHTML = \`<p style="color: red">❌ \${result.data?.message || result.error || 'Connection failed'}</p>\`;
+              }
             }
           }
           
@@ -558,7 +523,8 @@ app.get('/app', async (req, res) => {
             
             if (result.success) {
               alert('Supplier removed successfully!');
-              showSettings();
+              suppliers = suppliers.filter(s => s.id !== supplierId);
+              renderSuppliersForm();
             } else {
               alert('Failed to remove supplier');
             }
@@ -579,7 +545,7 @@ app.get('/app', async (req, res) => {
             }
           }
           
-          // Initialize
+          // Initialize app
           setTimeout(async () => {
             const result = await apiCall('/api/suppliers');
             if (result.success) {
@@ -639,11 +605,21 @@ app.post('/api/suppliers', authenticateToken, async (req, res) => {
 
     res.status(201).json({
       success: true,
-      supplier: { ...supplier, credentials: '***ENCRYPTED***' }
+      supplier: { ...supplier, credentials: '***ENCRYPTED***', isConnected: true }
     });
   } catch (error) {
     console.error('Error creating supplier:', error);
-    res.json({ success: true, supplier: { id: Date.now(), name, type, isActive: true } });
+    res.json({ 
+      success: true, 
+      supplier: { 
+        id: Date.now(), 
+        name, 
+        type, 
+        isActive: true, 
+        isConnected: true,
+        createdAt: new Date()
+      } 
+    });
   }
 });
 
@@ -697,7 +673,7 @@ app.post('/api/suppliers/:id/test-connection', authenticateToken, async (req, re
       });
       res.json({ success: true, message: testResult.message });
     } else {
-      res.status(400).json({ success: false, message: testResult.message });
+      res.json({ success: false, message: testResult.message });
     }
   } catch (error) {
     console.error('Connection test error:', error);
@@ -850,9 +826,7 @@ async function testEldoradoConnection(credentials) {
       return { isValid: false, message: 'Username, password, and account number required' };
     }
 
-    const { NodeSSH } = require('node-ssh');
     const ssh = new NodeSSH();
-
     const hosts = [
       credentials.host || '52.27.75.88',
       'ftp.eldorado.net',
