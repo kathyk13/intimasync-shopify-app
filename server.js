@@ -32,9 +32,10 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
-      scriptSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'", "https://api.shopify.com"]
+      connectSrc: ["'self'", "https://api.shopify.com"],
+      frameSrc: ["'self'", "https://admin.shopify.com"]
     }
   },
   crossOriginEmbedderPolicy: false
@@ -96,7 +97,8 @@ app.get('/', (req, res) => {
       products: '/api/products',
       orders: '/api/orders',
       webhooks: '/webhooks',
-      auth: '/auth'
+      auth: '/auth',
+      install: '/api/install'
     }
   });
 });
@@ -176,6 +178,452 @@ const upload = multer({
     } else {
       cb(new Error('Invalid file type'));
     }
+  }
+});
+
+// SHOPIFY APP INSTALLATION ROUTES
+
+// App Installation Route
+app.get('/api/install', verifyShopifyRequest, async (req, res) => {
+  try {
+    const { shop } = req.query;
+    
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>IntimaSync - Installing...</title>
+          <style>
+            body { 
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              padding: 60px 40px;
+              text-align: center;
+              background: #fafbfb;
+              color: #212b36;
+            }
+            .container { 
+              max-width: 600px; 
+              margin: 0 auto;
+              background: white;
+              padding: 40px;
+              border-radius: 8px;
+              box-shadow: 0 1px 0 0 rgba(22,29,37,.05);
+            }
+            h1 { 
+              color: #5c6ac4; 
+              margin-bottom: 20px;
+              font-size: 32px;
+              font-weight: 600;
+            }
+            .loading { 
+              color: #637381; 
+              margin: 20px 0;
+              font-size: 16px;
+            }
+            .spinner {
+              border: 3px solid #f3f3f3;
+              border-top: 3px solid #5c6ac4;
+              border-radius: 50%;
+              width: 40px;
+              height: 40px;
+              animation: spin 1s linear infinite;
+              margin: 20px auto;
+            }
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <h1>IntimaSync</h1>
+            <div class="spinner"></div>
+            <p class="loading">Installing app for ${shop}...</p>
+            <p>Setting up multi-supplier inventory management...</p>
+            <script>
+              setTimeout(() => {
+                window.location.href = '/auth?shop=${shop}';
+              }, 3000);
+            </script>
+          </div>
+        </body>
+      </html>
+    `);
+  } catch (error) {
+    console.error('Install route error:', error);
+    res.status(500).json({ error: 'Installation failed' });
+  }
+});
+
+// App Embedded Interface Route
+app.get('/api/app', async (req, res) => {
+  try {
+    const { shop, token } = req.query;
+    
+    if (!shop) {
+      return res.status(400).json({ error: 'Shop parameter required' });
+    }
+
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>IntimaSync Dashboard</title>
+          <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { 
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              background: #fafbfb;
+              color: #212b36;
+            }
+            .dashboard { 
+              max-width: 1200px; 
+              margin: 0 auto; 
+              padding: 20px;
+            }
+            .header {
+              background: white;
+              padding: 24px;
+              border-radius: 8px;
+              box-shadow: 0 1px 0 0 rgba(22,29,37,.05);
+              margin-bottom: 20px;
+            }
+            .header h1 {
+              color: #5c6ac4;
+              font-size: 28px;
+              margin-bottom: 8px;
+            }
+            .header p {
+              color: #637381;
+              font-size: 16px;
+            }
+            .nav { 
+              background: white;
+              padding: 20px 24px;
+              margin-bottom: 20px;
+              border-radius: 8px;
+              box-shadow: 0 1px 0 0 rgba(22,29,37,.05);
+            }
+            .nav-buttons {
+              display: flex;
+              gap: 12px;
+              flex-wrap: wrap;
+            }
+            .nav button { 
+              padding: 12px 20px;
+              border: 1px solid #c4cdd5;
+              background: white;
+              color: #212b36;
+              border-radius: 4px;
+              cursor: pointer;
+              font-size: 14px;
+              font-weight: 500;
+              transition: all 0.2s;
+            }
+            .nav button:hover {
+              background: #f6f6f7;
+              border-color: #8c9196;
+            }
+            .nav button.active {
+              background: #5c6ac4;
+              color: white;
+              border-color: #5c6ac4;
+            }
+            .content { 
+              background: white;
+              padding: 24px;
+              border-radius: 8px;
+              box-shadow: 0 1px 0 0 rgba(22,29,37,.05);
+              min-height: 400px;
+            }
+            .content h2 {
+              color: #212b36;
+              margin-bottom: 16px;
+              font-size: 20px;
+            }
+            .content h3 {
+              color: #212b36;
+              margin: 20px 0 12px 0;
+              font-size: 16px;
+            }
+            .content p {
+              color: #637381;
+              line-height: 1.5;
+              margin-bottom: 12px;
+            }
+            .content ul {
+              margin: 12px 0 12px 20px;
+            }
+            .content li {
+              color: #637381;
+              margin-bottom: 8px;
+            }
+            .credentials-box {
+              background: #f6f6f7;
+              border: 1px solid #e1e3e5;
+              padding: 16px;
+              border-radius: 4px;
+              margin: 16px 0;
+            }
+            .credentials-box h4 {
+              color: #212b36;
+              margin-bottom: 12px;
+              font-size: 14px;
+              font-weight: 600;
+            }
+            .credentials-box p {
+              color: #454f5b;
+              margin-bottom: 8px;
+              font-size: 14px;
+            }
+            .api-link {
+              display: inline-block;
+              color: #5c6ac4;
+              text-decoration: none;
+              font-weight: 500;
+              margin-top: 12px;
+            }
+            .api-link:hover {
+              text-decoration: underline;
+            }
+            .welcome-steps {
+              background: #f4f6fa;
+              border-left: 4px solid #5c6ac4;
+              padding: 16px 20px;
+              margin: 16px 0;
+            }
+            .welcome-steps h3 {
+              color: #5c6ac4;
+              margin-top: 0;
+            }
+            .welcome-steps ol {
+              margin: 12px 0 0 16px;
+            }
+            .welcome-steps li {
+              color: #454f5b;
+              margin-bottom: 8px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="dashboard">
+            <div class="header">
+              <h1>IntimaSync</h1>
+              <p>Multi-supplier inventory management for ${shop}</p>
+            </div>
+            
+            <div class="nav">
+              <div class="nav-buttons">
+                <button id="welcome-btn" class="active" onclick="showWelcome()">Welcome</button>
+                <button id="suppliers-btn" onclick="showSuppliers()">Suppliers</button>
+                <button id="products-btn" onclick="showProducts()">Products</button>
+                <button id="orders-btn" onclick="showOrders()">Orders</button>
+                <button id="settings-btn" onclick="showSettings()">Settings</button>
+              </div>
+            </div>
+            
+            <div class="content" id="content">
+              <h2>Welcome to IntimaSync!</h2>
+              <p>Your multi-supplier inventory management system is now installed and ready to configure.</p>
+              
+              <div class="welcome-steps">
+                <h3>Quick Start Guide</h3>
+                <ol>
+                  <li><strong>Configure Suppliers:</strong> Click "Settings" to add your supplier credentials</li>
+                  <li><strong>Test Connections:</strong> Verify that all supplier APIs are working</li>
+                  <li><strong>Sync Products:</strong> Import products from your suppliers</li>
+                  <li><strong>Manage Inventory:</strong> Use price comparison and intelligent routing</li>
+                  <li><strong>Process Orders:</strong> Automatic routing to cheapest suppliers</li>
+                </ol>
+              </div>
+              
+              <h3>Supported Suppliers</h3>
+              <ul>
+                <li><strong>Nalpac</strong> - REST API Integration with real-time inventory</li>
+                <li><strong>Honey's Place</strong> - Data Feed Integration (JSON/XML/CSV)</li>
+                <li><strong>Eldorado</strong> - SFTP Integration with file processing</li>
+              </ul>
+              
+              <p><strong>Ready to get started?</strong> Click "Settings" to configure your first supplier connection.</p>
+            </div>
+          </div>
+          
+          <script>
+            // App Bridge initialization
+            if (window.shopifyAppBridge) {
+              const AppBridge = window.shopifyAppBridge;
+              const app = AppBridge.createApp({
+                apiKey: '${process.env.SHOPIFY_API_KEY || 'your-api-key'}',
+                host: '${Buffer.from(shop + '/admin').toString('base64')}'
+              });
+            }
+            
+            function setActiveButton(buttonId) {
+              document.querySelectorAll('.nav button').forEach(btn => {
+                btn.classList.remove('active');
+              });
+              document.getElementById(buttonId).classList.add('active');
+            }
+            
+            function showWelcome() {
+              setActiveButton('welcome-btn');
+              document.getElementById('content').innerHTML = \`
+                <h2>Welcome to IntimaSync!</h2>
+                <p>Your multi-supplier inventory management system is now installed and ready to configure.</p>
+                
+                <div class="welcome-steps">
+                  <h3>Quick Start Guide</h3>
+                  <ol>
+                    <li><strong>Configure Suppliers:</strong> Click "Settings" to add your supplier credentials</li>
+                    <li><strong>Test Connections:</strong> Verify that all supplier APIs are working</li>
+                    <li><strong>Sync Products:</strong> Import products from your suppliers</li>
+                    <li><strong>Manage Inventory:</strong> Use price comparison and intelligent routing</li>
+                    <li><strong>Process Orders:</strong> Automatic routing to cheapest suppliers</li>
+                  </ol>
+                </div>
+                
+                <h3>Supported Suppliers</h3>
+                <ul>
+                  <li><strong>Nalpac</strong> - REST API Integration with real-time inventory</li>
+                  <li><strong>Honey's Place</strong> - Data Feed Integration (JSON/XML/CSV)</li>
+                  <li><strong>Eldorado</strong> - SFTP Integration with file processing</li>
+                </ul>
+                
+                <p><strong>Ready to get started?</strong> Click "Settings" to configure your first supplier connection.</p>
+              \`;
+            }
+            
+            function showSuppliers() {
+              setActiveButton('suppliers-btn');
+              document.getElementById('content').innerHTML = \`
+                <h2>Supplier Management</h2>
+                <p>Configure and manage your supplier connections. IntimaSync supports three major intimacy product suppliers.</p>
+                
+                <h3>Connected Suppliers</h3>
+                <ul>
+                  <li><strong>Nalpac</strong> - REST API Integration
+                    <ul>
+                      <li>Real-time inventory updates</li>
+                      <li>Automatic price synchronization</li>
+                      <li>Order placement API</li>
+                    </ul>
+                  </li>
+                  <li><strong>Honey's Place</strong> - Data Feed Integration
+                    <ul>
+                      <li>JSON, XML, and CSV data feeds</li>
+                      <li>Product catalog synchronization</li>
+                      <li>Pricing and availability updates</li>
+                    </ul>
+                  </li>
+                  <li><strong>Eldorado</strong> - SFTP Integration
+                    <ul>
+                      <li>Secure file transfer protocol</li>
+                      <li>Batch product updates</li>
+                      <li>Customer-specific pricing</li>
+                    </ul>
+                  </li>
+                </ul>
+                
+                <a href="/api/suppliers" target="_blank" class="api-link">View Suppliers API Documentation →</a>
+              \`;
+            }
+            
+            function showProducts() {
+              setActiveButton('products-btn');
+              document.getElementById('content').innerHTML = \`
+                <h2>Product Management</h2>
+                <p>Sync and manage products from all connected suppliers with intelligent price comparison.</p>
+                
+                <h3>Key Features</h3>
+                <ul>
+                  <li><strong>Multi-Supplier Sync:</strong> Import products from all suppliers simultaneously</li>
+                  <li><strong>Price Comparison:</strong> Automatically identify cheapest supplier for each product</li>
+                  <li><strong>Inventory Tracking:</strong> Real-time inventory levels across all suppliers</li>
+                  <li><strong>Shopify Integration:</strong> One-click product import to your Shopify store</li>
+                  <li><strong>Bulk Operations:</strong> Manage hundreds of products efficiently</li>
+                </ul>
+                
+                <h3>Product Sync Process</h3>
+                <ol>
+                  <li>Configure supplier credentials in Settings</li>
+                  <li>Run product synchronization</li>
+                  <li>Review price comparisons and select products</li>
+                  <li>Import selected products to Shopify</li>
+                  <li>Orders automatically route to cheapest supplier</li>
+                </ol>
+                
+                <a href="/api/products" target="_blank" class="api-link">View Products API Documentation →</a>
+              \`;
+            }
+            
+            function showOrders() {
+              setActiveButton('orders-btn');
+              document.getElementById('content').innerHTML = \`
+                <h2>Order Management</h2>
+                <p>Intelligent order routing and supplier management for optimal cost savings.</p>
+                
+                <h3>Smart Order Routing</h3>
+                <ul>
+                  <li><strong>Cost Optimization:</strong> Automatically route to cheapest supplier</li>
+                  <li><strong>Shipping Consolidation:</strong> Minimize number of shipments</li>
+                  <li><strong>Availability Check:</strong> Real-time inventory verification</li>
+                  <li><strong>Order Tracking:</strong> Monitor orders across all suppliers</li>
+                </ul>
+                
+                <h3>How It Works</h3>
+                <ol>
+                  <li>Customer places order on your Shopify store</li>
+                  <li>IntimaSync receives order webhook</li>
+                  <li>System determines optimal supplier routing</li>
+                  <li>Orders automatically sent to suppliers</li>
+                  <li>Tracking information synced back to Shopify</li>
+                </ol>
+                
+                <a href="/api/orders" target="_blank" class="api-link">View Orders API Documentation →</a>
+              \`;
+            }
+            
+            function showSettings() {
+              setActiveButton('settings-btn');
+              document.getElementById('content').innerHTML = \`
+                <h2>Settings & Configuration</h2>
+                <p>Configure your supplier credentials and test API connections.</p>
+                
+                <div class="credentials-box">
+                  <h4>Supplier Credentials Required:</h4>
+                  <p><strong>Nalpac:</strong> Username and Password (from your Nalpac account)</p>
+                  <p><strong>Honey's Place:</strong> Username and API Token (contact Honey's Place for token)</p>
+                  <p><strong>Eldorado:</strong> SFTP Username, Password, and Customer ID (Account Number)</p>
+                </div>
+                
+                <h3>Configuration Steps</h3>
+                <ol>
+                  <li><strong>Gather Credentials:</strong> Contact each supplier for API access</li>
+                  <li><strong>Add Suppliers:</strong> Use the API endpoints to configure credentials</li>
+                  <li><strong>Test Connections:</strong> Verify each supplier connection works</li>
+                  <li><strong>Configure Settings:</strong> Set sync frequency and preferences</li>
+                  <li><strong>Start Syncing:</strong> Begin importing products and processing orders</li>
+                </ol>
+                
+                <h3>API Endpoints for Configuration</h3>
+                <ul>
+                  <li><strong>POST /api/suppliers</strong> - Add new supplier</li>
+                  <li><strong>PUT /api/suppliers/:id</strong> - Update supplier credentials</li>
+                  <li><strong>POST /api/suppliers/:id/test-connection</strong> - Test connection</li>
+                </ul>
+                
+                <p><strong>Need API access?</strong> Contact your supplier representatives to request developer credentials.</p>
+              \`;
+            }
+          </script>
+        </body>
+      </html>
+    `);
+  } catch (error) {
+    console.error('App route error:', error);
+    res.status(500).json({ error: 'App loading failed' });
   }
 });
 
