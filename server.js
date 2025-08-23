@@ -220,6 +220,8 @@ app.get('/app', async (req, res) => {
       <head>
         <title>IntimaSync Dashboard</title>
         <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
+        <!-- Include App Bridge utilities for authenticated fetch -->
+        <script src="https://unpkg.com/@shopify/app-bridge-utils@3"></script>
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #fafbfb; color: #212b36; }
@@ -294,24 +296,48 @@ app.get('/app', async (req, res) => {
           </div>
         </div>
         <script>
+          // Authentication token placeholder – replace with a real JWT when available
           let authToken = 'demo-token';
+          // Initialize Shopify App Bridge to support embedding inside the Shopify Admin
+          const urlParams = new URLSearchParams(window.location.search);
+          const hostParam = urlParams.get('host');
+          // App Bridge instance and authenticated fetch function
+          let appBridgeApp = null;
+          let appBridgeFetch = null;
+          if (window.appBridge && hostParam) {
+            appBridgeApp = window.appBridge.createApp({
+              apiKey: '${process.env.SHOPIFY_API_KEY}',
+              host: hostParam,
+              forceRedirect: true
+            });
+            if (window.appBridgeUtils && typeof window.appBridgeUtils.authenticatedFetch === 'function') {
+              appBridgeFetch = window.appBridgeUtils.authenticatedFetch(appBridgeApp);
+            }
+          }
+          // Expose authenticated fetch globally
+          window.authFetch = appBridgeFetch;
+          // Data stores
           let suppliers = [];
           let products = [];
+          // Generic API helper: uses App Bridge fetch when available, otherwise default fetch
           async function apiCall(endpoint, options = {}) {
-            // Use the injected baseApiUrl if available (set in head). This ensures
-            // API calls hit your own app domain even when the app is embedded
-            // inside admin.shopify.com. Fall back to window.location.origin.
             const baseUrl = window.baseApiUrl || window.location.origin;
             const url = baseUrl + endpoint;
+            const fetchFn = window.authFetch || window.fetch.bind(window);
             try {
-              const response = await fetch(url, {
+              const response = await fetchFn(url, {
                 headers: {
                   'Content-Type': 'application/json',
                   'Authorization': 'Bearer ' + authToken
                 },
                 ...options
               });
-              const data = await response.json();
+              let data = null;
+              try {
+                data = await response.json();
+              } catch (parseError) {
+                data = null;
+              }
               return { success: response.ok, data, status: response.status };
             } catch (error) {
               console.error('API call failed:', error);
