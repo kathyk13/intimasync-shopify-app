@@ -32,12 +32,12 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-      fontSrc: ["'self'", "https://fonts.gstatic.com"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com"],
-      imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'", "https:"],
-      frameSrc: ["'self'", "https://admin.shopify.com"]
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+      scriptSrc: ["'self'", "'unsafe-inline'", 'https://unpkg.com'],
+      imgSrc: ["'self'", 'data:', 'https:'],
+      connectSrc: ["'self'", 'https:'],
+      frameSrc: ["'self'", 'https://admin.shopify.com']
     }
   },
   crossOriginEmbedderPolicy: false
@@ -51,11 +51,10 @@ app.use(cors({
       'https://intimasync-backend.onrender.com',
       'http://localhost:3000'
     ];
-    
     if (!origin || allowedOrigins.some(allowed => origin.includes(allowed.replace('https://', '').replace('http://', '')))) {
       callback(null, true);
     } else {
-      callback(null, true); // Allow all for now
+      callback(null, true);
     }
   },
   credentials: true
@@ -81,8 +80,8 @@ app.use((req, res, next) => {
 
 // Health Check
 app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'healthy', 
+  res.status(200).json({
+    status: 'healthy',
     timestamp: new Date().toISOString(),
     uptime: process.uptime()
   });
@@ -103,7 +102,7 @@ function encrypt(text) {
   const algorithm = 'aes-256-cbc';
   const key = crypto.scryptSync(process.env.ENCRYPTION_KEY, 'salt', 32);
   const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipher(algorithm, key);
+  const cipher = crypto.createCipheriv(algorithm, key, iv);
   let encrypted = cipher.update(text, 'utf8', 'hex');
   encrypted += cipher.final('hex');
   return iv.toString('hex') + ':' + encrypted;
@@ -115,7 +114,7 @@ function decrypt(encryptedText) {
   const textParts = encryptedText.split(':');
   const iv = Buffer.from(textParts.shift(), 'hex');
   const encrypted = textParts.join(':');
-  const decipher = crypto.createDecipher(algorithm, key);
+  const decipher = crypto.createDecipheriv(algorithm, key, iv);
   let decrypted = decipher.update(encrypted, 'hex', 'utf8');
   decrypted += decipher.final('utf8');
   return decrypted;
@@ -147,22 +146,51 @@ const upload = multer({
 
 app.get('/api/install', verifyShopifyRequest, async (req, res) => {
   const { shop } = req.query;
-  
   res.send(`
     <!DOCTYPE html>
     <html>
       <head>
         <title>IntimaSync - Installing...</title>
         <style>
-          body { 
+          body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            padding: 60px 40px; text-align: center; background: #fafbfb; color: #212b36;
+            padding: 60px 40px;
+            text-align: center;
+            background: #fafbfb;
+            color: #212b36;
           }
-          .container { max-width: 600px; margin: 0 auto; background: white; padding: 40px; border-radius: 8px; box-shadow: 0 1px 0 0 rgba(22,29,37,.05); }
-          h1 { color: #5c6ac4; margin-bottom: 20px; font-size: 32px; font-weight: 600; }
-          .loading { color: #637381; margin: 20px 0; font-size: 16px; }
-          .spinner { border: 3px solid #f3f3f3; border-top: 3px solid #5c6ac4; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
-          @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+          .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 1px 0 0 rgba(22,29,37,.05);
+          }
+          h1 {
+            color: #5c6ac4;
+            margin-bottom: 20px;
+            font-size: 32px;
+            font-weight: 600;
+          }
+          .loading {
+            color: #637381;
+            margin: 20px 0;
+            font-size: 16px;
+          }
+          .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #5c6ac4;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+          }
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
         </style>
       </head>
       <body>
@@ -185,7 +213,6 @@ app.get('/api/install', verifyShopifyRequest, async (req, res) => {
 // MAIN APP INTERFACE
 app.get('/app', async (req, res) => {
   const { shop } = req.query;
-  
   res.send(`
     <!DOCTYPE html>
     <html>
@@ -225,7 +252,6 @@ app.get('/app', async (req, res) => {
             <h1>IntimaSync</h1>
             <p>Multi-supplier inventory management for ${shop || 'your store'}</p>
           </div>
-          
           <div class="nav">
             <div class="nav-buttons">
               <button id="welcome-btn" class="active" onclick="showWelcome()">Welcome</button>
@@ -235,11 +261,9 @@ app.get('/app', async (req, res) => {
               <button id="settings-btn" onclick="showSettings()">Settings</button>
             </div>
           </div>
-          
           <div class="content" id="content">
             <h2>Welcome to IntimaSync!</h2>
             <p>Your multi-supplier inventory management system is ready to configure.</p>
-            
             <div class="welcome-steps">
               <h3>Quick Start Guide</h3>
               <ol>
@@ -250,27 +274,22 @@ app.get('/app', async (req, res) => {
                 <li><strong>Process Orders:</strong> Automatic routing to cheapest suppliers</li>
               </ol>
             </div>
-            
             <h3>Supported Suppliers</h3>
             <ul>
               <li><strong>Nalpac</strong> - REST API Integration with real-time inventory</li>
-              <li><strong>Honey's Place</strong> - Data Feed Integration (JSON/XML/CSV)</li>
+              <li><strong>Honey&#39;s Place</strong> - Data Feed Integration (JSON/XML/CSV)</li>
               <li><strong>Eldorado</strong> - SFTP Integration with file processing</li>
             </ul>
-            
             <p><strong>Ready to get started?</strong> Click "Settings" to configure your first supplier connection.</p>
           </div>
         </div>
-        
         <script>
           let authToken = 'demo-token';
           let suppliers = [];
           let products = [];
-          
           async function apiCall(endpoint, options = {}) {
             const baseUrl = window.location.origin;
             const url = baseUrl + endpoint;
-            
             try {
               const response = await fetch(url, {
                 headers: {
@@ -286,12 +305,10 @@ app.get('/app', async (req, res) => {
               return { success: false, error: error.message };
             }
           }
-          
           function setActiveButton(buttonId) {
             document.querySelectorAll('.nav button').forEach(btn => btn.classList.remove('active'));
             document.getElementById(buttonId).classList.add('active');
           }
-          
           function showWelcome() {
             setActiveButton('welcome-btn');
             document.getElementById('content').innerHTML = '' +
@@ -312,18 +329,16 @@ app.get('/app', async (req, res) => {
               '<h3>Supported Suppliers</h3>' +
               '<ul>' +
                 '<li><strong>Nalpac</strong> - REST API Integration with real-time inventory</li>' +
-                '<li><strong>Honey\'s Place</strong> - Data Feed Integration (JSON/XML/CSV)</li>' +
+                '<li><strong>Honey&#39;s Place</strong> - Data Feed Integration (JSON/XML/CSV)</li>' +
                 '<li><strong>Eldorado</strong> - SFTP Integration with file processing</li>' +
               '</ul>' +
               '' +
               '<p><strong>Ready to get started?</strong> Click "Settings" to configure your first supplier connection.</p>';
           }
-          
           async function showSuppliers() {
             setActiveButton('suppliers-btn');
             const result = await apiCall('/api/suppliers');
             suppliers = result.success ? result.data.suppliers || [] : [];
-            
             document.getElementById('content').innerHTML = '' +
               '<h2>Supplier Management</h2>' +
               '<p>Configure and manage your supplier connections.</p>' +
@@ -333,25 +348,21 @@ app.get('/app', async (req, res) => {
                 '<div id="supplier-cards"></div>' +
               '</div>' +
               '' +
-              (suppliers.length === 0 ? 
+              (suppliers.length === 0 ?
               '<div style="text-align: center; padding: 40px; background: #f8f9fa; border-radius: 4px; margin: 20px 0;">' +
                 '<p><strong>No suppliers configured yet</strong></p>' +
                 '<p>Go to "Settings" to configure your supplier credentials.</p>' +
               '</div>' : '');
-            
             renderSupplierCards();
           }
-          
           function renderSupplierCards() {
             const container = document.getElementById('supplier-cards');
             if (!container) return;
-            
             if (suppliers.length === 0) {
               container.innerHTML = '<p>No suppliers configured yet. <a href="#" onclick="showSettings()">Click here to add suppliers</a>.</p>';
               return;
             }
-            
-            container.innerHTML = suppliers.map(supplier => 
+            container.innerHTML = suppliers.map(supplier =>
               '<div style="border: 1px solid #e1e3e5; padding: 15px; margin: 10px 0; border-radius: 4px; background: white;">' +
                 '<div style="display: flex; justify-content: space-between; align-items: center;">' +
                   '<div>' +
@@ -367,12 +378,10 @@ app.get('/app', async (req, res) => {
               '</div>'
             ).join('');
           }
-          
           async function showProducts() {
             setActiveButton('products-btn');
             const result = await apiCall('/api/products');
             products = result.success ? result.data.products || [] : [];
-            
             document.getElementById('content').innerHTML = '' +
               '<h2>Product Management</h2>' +
               '<p>Sync and manage products from all connected suppliers.</p>' +
@@ -386,21 +395,18 @@ app.get('/app', async (req, res) => {
                 '<div id="products-container"></div>' +
               '</div>' +
               '' +
-              (products.length === 0 ? 
+              (products.length === 0 ?
               '<div style="text-align: center; padding: 40px; background: #f8f9fa; border-radius: 4px; margin: 20px 0;">' +
                 '<p><strong>No products found</strong></p>' +
                 '<p>Sync products from your suppliers to get started.</p>' +
                 '<button onclick="showSettings()" style="background: #5c6ac4; color: white; border: none; padding: 12px 20px; border-radius: 4px; cursor: pointer;">Configure Suppliers</button>' +
               '</div>' : '');
-            
             renderProducts();
           }
-          
           function renderProducts() {
             const container = document.getElementById('products-container');
             if (!container || products.length === 0) return;
-            
-            container.innerHTML = products.slice(0, 20).map(product => 
+            container.innerHTML = products.slice(0, 20).map(product =>
               '<div style="border: 1px solid #e1e3e5; padding: 15px; margin: 10px 0; border-radius: 4px; background: white;">' +
                 '<h4 style="margin: 0 0 8px 0;">' + product.name + '</h4>' +
                 '<p style="margin: 4px 0; color: #637381; font-size: 14px;">SKU: ' + product.sku + '</p>' +
@@ -408,12 +414,10 @@ app.get('/app', async (req, res) => {
               '</div>'
             ).join('');
           }
-          
           async function showOrders() {
             setActiveButton('orders-btn');
             const result = await apiCall('/api/orders');
             const orders = result.success ? result.data.orders || [] : [];
-            
             document.getElementById('content').innerHTML = '' +
               '<h2>Order Management</h2>' +
               '<p>Intelligent order routing and supplier management.</p>' +
@@ -423,7 +427,7 @@ app.get('/app', async (req, res) => {
                 '<div id="orders-container"></div>' +
               '</div>' +
               '' +
-              (orders.length === 0 ? 
+              (orders.length === 0 ?
               '<div style="text-align: center; padding: 40px; background: #f8f9fa; border-radius: 4px; margin: 20px 0;">' +
                 '<p><strong>No orders found</strong></p>' +
                 '<p>Orders will appear here when customers place orders.</p>' +
@@ -439,7 +443,6 @@ app.get('/app', async (req, res) => {
                 '</ul>' +
               '</div>';
           }
-          
           function showSettings() {
             setActiveButton('settings-btn');
             document.getElementById('content').innerHTML = '' +
@@ -462,14 +465,14 @@ app.get('/app', async (req, res) => {
                 '</div>' +
                 '' +
                 '<div style="border: 1px solid #e1e3e5; padding: 20px; margin: 20px 0; border-radius: 4px; background: white;">' +
-                  '<h3 style="color: #5c6ac4; margin-top: 0;">Honey\'s Place Credentials</h3>' +
+                  '<h3 style="color: #5c6ac4; margin-top: 0;">Honey&#39;s Place Credentials</h3>' +
                   '<div style="margin: 15px 0;">' +
                     '<label style="display: block; margin-bottom: 5px; font-weight: 500;">Username:</label>' +
-                    '<input type="text" id="honeys-username" placeholder="Enter your Honey\'s Place username" style="width: 100%; padding: 8px 12px; border: 1px solid #c4cdd5; border-radius: 4px;">' +
+                    '<input type="text" id="honeys-username" placeholder="Enter your Honey&#39;s Place username" style="width: 100%; padding: 8px 12px; border: 1px solid #c4cdd5; border-radius: 4px;">' +
                   '</div>' +
                   '<div style="margin: 15px 0;">' +
                     '<label style="display: block; margin-bottom: 5px; font-weight: 500;">API Token:</label>' +
-                    '<input type="text" id="honeys-token" placeholder="Enter your Honey\'s Place API token" style="width: 100%; padding: 8px 12px; border: 1px solid #c4cdd5; border-radius: 4px;">' +
+                    '<input type="text" id="honeys-token" placeholder="Enter your Honey&#39;s Place API token" style="width: 100%; padding: 8px 12px; border: 1px solid #c4cdd5; border-radius: 4px;">' +
                   '</div>' +
                   '<div id="honeys-status" style="margin: 10px 0; font-size: 14px;"></div>' +
                 '</div>' +
@@ -499,20 +502,16 @@ app.get('/app', async (req, res) => {
               '</form>' +
               '' +
               '<div id="existing-suppliers" style="margin-top: 40px;"></div>';
-            
             loadSuppliers();
             renderSuppliers();
           }
-          
           function renderSuppliers() {
             const container = document.getElementById('existing-suppliers');
             if (!container) return;
-            
             if (suppliers.length === 0) {
               container.innerHTML = '<h3>Current Suppliers</h3><p>No suppliers configured yet.</p>';
               return;
             }
-            
             let html = '<h3>Current Suppliers</h3>';
             suppliers.forEach(supplier => {
               html += '<div style="border: 1px solid #e1e3e5; padding: 15px; margin: 10px 0; border-radius: 4px; background: white;">' +
@@ -529,22 +528,15 @@ app.get('/app', async (req, res) => {
                 '<div id="test-result-' + supplier.id + '" style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 4px; display: none;"></div>' +
               '</div>';
             });
-            
             container.innerHTML = html;
           }
-          
           async function saveAllSuppliers() {
-            // Clear previous status messages
             document.getElementById('nalpac-status').innerHTML = '';
             document.getElementById('honeys-status').innerHTML = '';
             document.getElementById('eldorado-status').innerHTML = '';
-            
             const suppliersToSave = [];
-            
-            // Get Nalpac credentials
             const nalpacUsername = document.getElementById('nalpac-username').value.trim();
             const nalpacPassword = document.getElementById('nalpac-password').value.trim();
-            
             if (nalpacUsername && nalpacPassword) {
               suppliersToSave.push({
                 name: 'Nalpac',
@@ -552,24 +544,18 @@ app.get('/app', async (req, res) => {
                 credentials: { username: nalpacUsername, password: nalpacPassword }
               });
             }
-            
-            // Get Honey's Place credentials
             const honeysUsername = document.getElementById('honeys-username').value.trim();
             const honeysToken = document.getElementById('honeys-token').value.trim();
-            
             if (honeysUsername && honeysToken) {
               suppliersToSave.push({
-                name: 'Honeys Place',
+                name: 'Honey\'s Place',
                 type: 'honeys',
                 credentials: { username: honeysUsername, token: honeysToken }
               });
             }
-            
-            // Get Eldorado credentials
             const eldoradoUsername = document.getElementById('eldorado-username').value.trim();
             const eldoradoPassword = document.getElementById('eldorado-password').value.trim();
             const eldoradoAccount = document.getElementById('eldorado-account').value.trim();
-            
             if (eldoradoUsername && eldoradoPassword && eldoradoAccount) {
               suppliersToSave.push({
                 name: 'Eldorado',
@@ -577,13 +563,10 @@ app.get('/app', async (req, res) => {
                 credentials: { username: eldoradoUsername, password: eldoradoPassword, account: eldoradoAccount }
               });
             }
-            
             if (suppliersToSave.length === 0) {
               alert('Please fill in credentials for at least one supplier.');
               return;
             }
-            
-            // Save each supplier
             let savedCount = 0;
             for (const supplierData of suppliersToSave) {
               try {
@@ -591,7 +574,6 @@ app.get('/app', async (req, res) => {
                   method: 'POST',
                   body: JSON.stringify(supplierData)
                 });
-                
                 if (result.success) {
                   savedCount++;
                   const statusDiv = document.getElementById(supplierData.type + '-status');
@@ -611,60 +593,48 @@ app.get('/app', async (req, res) => {
                 }
               }
             }
-            
             if (savedCount > 0) {
-              // Show success message
               const successMessage = document.createElement('div');
               successMessage.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #28a745; color: white; padding: 15px 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 1000; font-weight: 500;';
               successMessage.innerHTML = '✅ Successfully saved ' + savedCount + ' supplier' + (savedCount > 1 ? 's' : '') + '!';
               document.body.appendChild(successMessage);
-              
-              // Remove success message after 4 seconds
               setTimeout(() => {
                 if (document.body.contains(successMessage)) {
                   document.body.removeChild(successMessage);
                 }
               }, 4000);
-              
               await loadSuppliers();
               renderSuppliers();
             }
           }
-          
           async function loadSuppliers() {
             const result = await apiCall('/api/suppliers');
             if (result.success) {
               suppliers = result.data.suppliers || [];
             }
           }
-          
           async function testAllConnections() {
-            // Clear previous status messages
             document.getElementById('nalpac-status').innerHTML = '';
             document.getElementById('honeys-status').innerHTML = '';
             document.getElementById('eldorado-status').innerHTML = '';
-            
             if (suppliers.length === 0) {
               alert('Please save your suppliers first before testing connections.');
               return;
             }
-            
             for (const supplier of suppliers) {
               const statusDiv = document.getElementById(supplier.type + '-status');
               if (statusDiv) {
                 statusDiv.innerHTML = '<span style="color: blue;">🔄 Testing connection...</span>';
               }
-              
               try {
                 const result = await apiCall('/api/suppliers/' + supplier.id + '/test-connection', {
                   method: 'POST'
                 });
-                
                 if (statusDiv) {
                   if (result.success) {
                     statusDiv.innerHTML = '<span style="color: green;">✅ ' + (result.data.message || 'Connection successful!') + '</span>';
                   } else {
-                    statusDiv.innerHTML = '<span style="color: red;">❌ ' + (result.data && result.data.message || result.error || 'Connection failed') + '</span>';
+                    statusDiv.innerHTML = '<span style="color: red;">❌ ' + ((result.data && result.data.message) || result.error || 'Connection failed') + '</span>';
                   }
                 }
               } catch (error) {
@@ -674,39 +644,31 @@ app.get('/app', async (req, res) => {
               }
             }
           }
-          
           async function testConnection(supplierId) {
             const resultDiv = document.getElementById('test-result-' + supplierId);
             resultDiv.style.display = 'block';
             resultDiv.innerHTML = '<p>🔄 Testing connection...</p>';
-            
             const result = await apiCall('/api/suppliers/' + supplierId + '/test-connection', { method: 'POST' });
-            
             if (result.success) {
               resultDiv.innerHTML = '<p style="color: green">✅ ' + (result.data.message || 'Connection successful!') + '</p>';
             } else {
-              resultDiv.innerHTML = '<p style="color: red">❌ ' + (result.data && result.data.message || result.error || 'Connection failed') + '</p>';
+              resultDiv.innerHTML = '<p style="color: red">❌ ' + ((result.data && result.data.message) || result.error || 'Connection failed') + '</p>';
             }
           }
-          
           async function syncProducts(supplierId) {
             const result = await apiCall('/api/products/sync', {
               method: 'POST',
               body: JSON.stringify({ supplierId })
             });
-            
             if (result.success) {
               alert('Product sync started!');
             } else {
               alert('Failed to start sync: ' + (result.error || 'Unknown error'));
             }
           }
-          
           async function removeSupplier(supplierId) {
             if (!confirm('Are you sure you want to remove this supplier?')) return;
-            
             const result = await apiCall('/api/suppliers/' + supplierId, { method: 'DELETE' });
-            
             if (result.success) {
               alert('Supplier removed successfully!');
               showSettings();
@@ -714,14 +676,12 @@ app.get('/app', async (req, res) => {
               alert('Failed to remove supplier');
             }
           }
-          
           async function syncAllProducts() {
             if (suppliers.length === 0) {
               alert('Please configure suppliers first!');
               showSettings();
               return;
             }
-            
             alert('Starting product sync for all suppliers...');
             for (const supplier of suppliers) {
               if (supplier.isConnected) {
@@ -729,8 +689,6 @@ app.get('/app', async (req, res) => {
               }
             }
           }
-          
-          // Initialize
           setTimeout(async () => {
             const result = await apiCall('/api/suppliers');
             if (result.success) {
@@ -752,7 +710,6 @@ app.get('/api/suppliers', authenticateToken, async (req, res) => {
       where: { shopId: req.user.shopId },
       include: { products: { take: 5 } }
     });
-
     res.json({
       success: true,
       suppliers: suppliers.map(supplier => ({
@@ -767,17 +724,13 @@ app.get('/api/suppliers', authenticateToken, async (req, res) => {
     res.json({ success: true, suppliers: [] });
   }
 });
-
 app.post('/api/suppliers', authenticateToken, async (req, res) => {
   try {
     const { name, type, credentials } = req.body;
-
     if (!name || !type) {
       return res.status(400).json({ error: 'Name and type are required' });
     }
-
     const encryptedCredentials = credentials ? encrypt(JSON.stringify(credentials)) : null;
-
     const supplier = await prisma.supplier.create({
       data: {
         name,
@@ -787,7 +740,6 @@ app.post('/api/suppliers', authenticateToken, async (req, res) => {
         isActive: true
       }
     });
-
     res.status(201).json({
       success: true,
       supplier: { ...supplier, credentials: '***ENCRYPTED***' }
@@ -797,7 +749,6 @@ app.post('/api/suppliers', authenticateToken, async (req, res) => {
     res.json({ success: true, supplier: { id: Date.now(), name, type, isActive: true } });
   }
 });
-
 app.delete('/api/suppliers/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -810,23 +761,18 @@ app.delete('/api/suppliers/:id', authenticateToken, async (req, res) => {
     res.json({ success: true, message: 'Supplier deleted' });
   }
 });
-
 // Connection Testing
 app.post('/api/suppliers/:id/test-connection', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    
     const supplier = await prisma.supplier.findUnique({
       where: { id: parseInt(id), shopId: req.user.shopId }
     });
-
     if (!supplier || !supplier.credentials) {
       return res.status(400).json({ error: 'Supplier not found or no credentials' });
     }
-
     const credentials = JSON.parse(decrypt(supplier.credentials));
     let testResult;
-
     switch (supplier.type.toLowerCase()) {
       case 'nalpac':
         testResult = await testNalpacConnection(credentials);
@@ -840,7 +786,6 @@ app.post('/api/suppliers/:id/test-connection', authenticateToken, async (req, re
       default:
         return res.status(400).json({ error: 'Unknown supplier type' });
     }
-
     if (testResult.isValid) {
       await prisma.supplier.update({
         where: { id: parseInt(id) },
@@ -855,16 +800,12 @@ app.post('/api/suppliers/:id/test-connection', authenticateToken, async (req, re
     res.json({ success: false, message: 'Connection test failed: ' + error.message });
   }
 });
-
 // REAL API CONNECTION FUNCTIONS
-
 async function testNalpacConnection(credentials) {
   try {
     if (!credentials.username || !credentials.password) {
       return { isValid: false, message: 'Username and password required' };
     }
-
-    // Method 1: Try REST API v2
     try {
       const authResponse = await axios.post('https://api.nalpac.com/v2/authenticate', {
         username: credentials.username,
@@ -873,7 +814,6 @@ async function testNalpacConnection(credentials) {
         headers: { 'Content-Type': 'application/json', 'User-Agent': 'IntimaSync/1.0' },
         timeout: 15000
       });
-
       if (authResponse.status === 200 && authResponse.data.token) {
         const testResponse = await axios.get('https://api.nalpac.com/v2/products?limit=1', {
           headers: { 'Authorization': `Bearer ${authResponse.data.token}` },
@@ -884,8 +824,6 @@ async function testNalpacConnection(credentials) {
     } catch (apiError) {
       console.log('Nalpac API v2 failed, trying XML feed...');
     }
-
-    // Method 2: Try XML feed
     try {
       const xmlResponse = await axios.get('https://feeds.nalpac.com/datafeed.xml', {
         auth: { username: credentials.username, password: credentials.password },
@@ -893,15 +831,12 @@ async function testNalpacConnection(credentials) {
         timeout: 20000,
         maxContentLength: 1000000
       });
-
       if (xmlResponse.status === 200 && xmlResponse.data.includes('<product>')) {
         return { isValid: true, message: '✅ Nalpac XML Feed Connected!' };
       }
     } catch (xmlError) {
       console.log('Nalpac XML failed, trying login...');
     }
-
-    // Method 3: Try direct login
     try {
       const loginResponse = await axios.post('https://www.nalpac.com/customer/account/loginPost', {
         'login[username]': credentials.username,
@@ -911,76 +846,63 @@ async function testNalpacConnection(credentials) {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'IntimaSync/1.0' },
         timeout: 15000,
         maxRedirects: 0,
-        validateStatus: function (status) { return status < 400; }
+        validateStatus: status => status < 400
       });
-
       if (loginResponse.status < 400) {
         return { isValid: true, message: '✅ Nalpac Login Successful!' };
       }
     } catch (loginError) {
-      // Continue to final error
+      // fall through
     }
-
     return { isValid: false, message: '❌ Could not authenticate with Nalpac. Please verify credentials.' };
   } catch (error) {
     return { isValid: false, message: `❌ Connection error: ${error.message}` };
   }
 }
-
 async function testHoneysConnection(credentials) {
   try {
     if (!credentials.username || !credentials.token) {
       return { isValid: false, message: 'Username and API token required' };
     }
-
-    // Method 1: Try JSON feed
     try {
       const jsonFeedUrl = `https://www.honeysplace.com/df/${credentials.token}/json?limit=5`;
       const response = await axios.get(jsonFeedUrl, {
         headers: { 'User-Agent': 'IntimaSync/1.0', 'Accept': 'application/json' },
         timeout: 20000
       });
-
       if (response.status === 200 && Array.isArray(response.data) && response.data.length > 0) {
         const firstProduct = response.data[0];
-        return { isValid: true, message: `✅ Honey's Place JSON Feed Connected! Sample: "${firstProduct.product_name || firstProduct.name || 'Product'}"` };
+        return { isValid: true, message: `✅ Honey\'s Place JSON Feed Connected! Sample: "${firstProduct.product_name || firstProduct.name || 'Product'}"` };
       } else if (response.status === 200 && Array.isArray(response.data)) {
         return { isValid: true, message: '✅ Honey\'s Place Connected! Feed accessible.' };
       }
     } catch (jsonError) {
       console.log('JSON feed failed, trying XML...');
     }
-
-    // Method 2: Try XML feed
     try {
       const xmlFeedUrl = `https://www.honeysplace.com/df/${credentials.token}/xml?limit=5`;
       const xmlResponse = await axios.get(xmlFeedUrl, {
         headers: { 'User-Agent': 'IntimaSync/1.0', 'Accept': 'application/xml' },
         timeout: 20000
       });
-
       if (xmlResponse.status === 200 && xmlResponse.data.includes('<product>')) {
         return { isValid: true, message: '✅ Honey\'s Place XML Feed Connected!' };
       }
     } catch (xmlError) {
       console.log('XML feed failed, trying CSV...');
     }
-
-    // Method 3: Try CSV feed
     try {
       const csvFeedUrl = `https://www.honeysplace.com/df/${credentials.token}/csv?limit=5`;
       const csvResponse = await axios.get(csvFeedUrl, {
         headers: { 'User-Agent': 'IntimaSync/1.0', 'Accept': 'text/csv' },
         timeout: 20000
       });
-
       if (csvResponse.status === 200 && csvResponse.data.includes('product')) {
         return { isValid: true, message: '✅ Honey\'s Place CSV Feed Connected!' };
       }
     } catch (csvError) {
-      // Continue to error
+      // fall through
     }
-
     return { isValid: false, message: '❌ Invalid API token or feed not accessible.' };
   } catch (error) {
     if (error.response) {
@@ -994,25 +916,19 @@ async function testHoneysConnection(credentials) {
     return { isValid: false, message: `❌ Connection failed: ${error.message}` };
   }
 }
-
 async function testEldoradoConnection(credentials) {
   try {
     if (!credentials.username || !credentials.password || !credentials.account) {
       return { isValid: false, message: 'Username, password, and account number required' };
     }
-
-    const { NodeSSH } = require('node-ssh');
     const ssh = new NodeSSH();
-
     const hosts = [
       credentials.host || '52.27.75.88',
       'ftp.eldorado.net',
       'sftp.eldorado.net'
     ];
-
     let connected = false;
     let connectionResult = null;
-
     for (const host of hosts) {
       try {
         console.log(`Trying Eldorado connection to ${host}...`);
@@ -1023,11 +939,9 @@ async function testEldoradoConnection(credentials) {
           port: 22,
           readyTimeout: 20000
         });
-
         const pwdResult = await ssh.execCommand('pwd');
         const lsResult = await ssh.execCommand('ls -la');
         const findResult = await ssh.execCommand('find . -name "*price*" -o -name "*product*" -o -name "*inventory*" | head -10');
-
         connectionResult = {
           host: host,
           directory: pwdResult.stdout || ' ',
@@ -1036,29 +950,21 @@ async function testEldoradoConnection(credentials) {
         };
         connected = true;
         break;
-
       } catch (hostError) {
         console.log(`Failed to connect to ${host}:`, hostError.message);
         continue;
       }
     }
-
     ssh.dispose();
-
     if (connected && connectionResult) {
-      return { 
-        isValid: true, 
-        message: `✅ Eldorado SFTP Connected to ${connectionResult.host}! Account: ${credentials.account}. Found ${connectionResult.files} files, ${connectionResult.dataFiles} data files.` 
-      };
+      return { isValid: true, message: `✅ Eldorado SFTP Connected to ${connectionResult.host}! Account: ${credentials.account}. Found ${connectionResult.files} files, ${connectionResult.dataFiles} data files.` };
     } else {
       return { isValid: false, message: `❌ Could not connect to any Eldorado SFTP servers. Tried: ${hosts.join(', ')}` };
     }
-
   } catch (error) {
     return { isValid: false, message: `❌ Eldorado connection error: ${error.message}` };
   }
 }
-
 // Product Routes
 app.get('/api/products', authenticateToken, async (req, res) => {
   try {
@@ -1067,40 +973,28 @@ app.get('/api/products', authenticateToken, async (req, res) => {
       include: { supplier: true },
       take: 50
     });
-
     res.json({ success: true, products });
   } catch (error) {
     console.error('Error fetching products:', error);
     res.json({ success: true, products: [] });
   }
 });
-
 app.post('/api/products/sync', authenticateToken, async (req, res) => {
   try {
     const { supplierId } = req.body;
-    
     const supplier = await prisma.supplier.findUnique({
       where: { id: parseInt(supplierId), shopId: req.user.shopId }
     });
-
     if (!supplier) {
       return res.status(404).json({ error: 'Supplier not found' });
     }
-
-    // Start background sync
     syncSupplierProducts(supplier).catch(console.error);
-
-    res.json({ 
-      success: true, 
-      message: 'Product sync started',
-      supplierId: supplier.id
-    });
+    res.json({ success: true, message: 'Product sync started', supplierId: supplier.id });
   } catch (error) {
     console.error('Error starting sync:', error);
     res.json({ success: true, message: 'Sync started' });
   }
 });
-
 // Order Routes
 app.get('/api/orders', authenticateToken, async (req, res) => {
   try {
@@ -1109,69 +1003,54 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
       include: { supplier: true, items: true },
       take: 50
     });
-
     res.json({ success: true, orders });
   } catch (error) {
     console.error('Error fetching orders:', error);
     res.json({ success: true, orders: [] });
   }
 });
-
 // Auth Routes
 app.get('/auth', verifyShopifyRequest, (req, res) => {
   const { shop } = req.query;
   const scopes = 'read_products,write_products,read_orders,write_orders';
   const redirectUri = `${req.protocol}://${req.get('host')}/auth/callback`;
   const state = crypto.randomBytes(16).toString('hex');
-  
   const authUrl = `https://${shop}/admin/oauth/authorize?client_id=${process.env.SHOPIFY_API_KEY}&scope=${scopes}&redirect_uri=${redirectUri}&state=${state}`;
   res.redirect(authUrl);
 });
-
 app.get('/auth/callback', async (req, res) => {
   try {
     const { code, shop } = req.query;
-    
     if (!code || !shop) {
       return res.status(400).json({ error: 'Missing parameters' });
     }
-
     const tokenResponse = await axios.post(`https://${shop}/admin/oauth/access_token`, {
       client_id: process.env.SHOPIFY_API_KEY,
       client_secret: process.env.SHOPIFY_API_SECRET,
       code
     });
-
     const { access_token } = tokenResponse.data;
-
     const shopRecord = await prisma.shop.upsert({
       where: { domain: shop },
       update: { accessToken: encrypt(access_token), isActive: true, lastLoginAt: new Date() },
       create: { domain: shop, accessToken: encrypt(access_token), isActive: true, lastLoginAt: new Date() }
     });
-
     const token = jwt.sign({ shopId: shopRecord.id, shop }, process.env.JWT_SECRET, { expiresIn: '24h' });
-
     res.redirect(`https://intimasync-backend.onrender.com/app?shop=${shop}&token=${token}`);
   } catch (error) {
     console.error('Auth error:', error);
     res.redirect(`https://intimasync-backend.onrender.com/app?shop=${req.query.shop || 'demo.myshopify.com'}`);
   }
 });
-
 // BACKGROUND FUNCTIONS
-
 async function syncSupplierProducts(supplier) {
   try {
     console.log(`Starting product sync for ${supplier.name}...`);
-    
     if (!supplier.credentials) {
       throw new Error('No credentials configured');
     }
-
     const credentials = JSON.parse(decrypt(supplier.credentials));
     let products = [];
-
     switch (supplier.type.toLowerCase()) {
       case 'nalpac':
         products = await syncNalpacProducts(credentials);
@@ -1183,16 +1062,9 @@ async function syncSupplierProducts(supplier) {
         products = await syncEldoradoProducts(credentials);
         break;
     }
-
-    // Save products to database
     for (const productData of products) {
       await prisma.product.upsert({
-        where: { 
-          sku_supplierId: { 
-            sku: productData.sku, 
-            supplierId: supplier.id 
-          } 
-        },
+        where: { sku_supplierId: { sku: productData.sku, supplierId: supplier.id } },
         update: {
           name: productData.name,
           price: productData.price,
@@ -1207,48 +1079,36 @@ async function syncSupplierProducts(supplier) {
         }
       });
     }
-
     await prisma.supplier.update({
       where: { id: supplier.id },
       data: { lastSyncAt: new Date() }
     });
-
     console.log(`Synced ${products.length} products for ${supplier.name}`);
   } catch (error) {
     console.error(`Product sync failed for ${supplier.name}:`, error);
   }
 }
-
 async function syncNalpacProducts(credentials) {
-  // Implement Nalpac product sync
   return [];
 }
-
 async function syncHoneysProducts(credentials) {
-  // Implement Honey's Place product sync
   return [];
 }
-
 async function syncEldoradoProducts(credentials) {
-  // Implement Eldorado product sync
   return [];
 }
-
 // Error Handling
 app.use((error, req, res, next) => {
   console.error('Unhandled error:', error);
   res.status(500).json({ error: 'Internal server error' });
 });
-
 // 404 Handler
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
-
 // Start Server
 app.listen(PORT, () => {
   console.log(`IntimaSync server running on port ${PORT}`);
   console.log(`App URL: https://intimasync-backend.onrender.com/app`);
 });
-
 module.exports = app;
