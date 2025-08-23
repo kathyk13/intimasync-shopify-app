@@ -246,6 +246,15 @@ app.get('/app', async (req, res) => {
           .welcome-steps ol { margin: 12px 0 0 16px; }
           .welcome-steps li { color: #454f5b; margin-bottom: 8px; }
         </style>
+        <!--
+          Expose the API base URL for the frontend. In the Shopify embedded context
+          window.location.origin may point to admin.shopify.com instead of your app
+          domain, which breaks relative API calls. We inject baseApiUrl here using
+          the request protocol and host so that apiCall() can build correct URLs.
+        -->
+        <script>
+          window.baseApiUrl = '${req.protocol}://${req.get('host')}';
+        </script>
       </head>
       <body>
         <div class="dashboard">
@@ -289,7 +298,10 @@ app.get('/app', async (req, res) => {
           let suppliers = [];
           let products = [];
           async function apiCall(endpoint, options = {}) {
-            const baseUrl = window.location.origin;
+            // Use the injected baseApiUrl if available (set in head). This ensures
+            // API calls hit your own app domain even when the app is embedded
+            // inside admin.shopify.com. Fall back to window.location.origin.
+            const baseUrl = window.baseApiUrl || window.location.origin;
             const url = baseUrl + endpoint;
             try {
               const response = await fetch(url, {
