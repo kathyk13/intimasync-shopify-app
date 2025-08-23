@@ -149,9 +149,9 @@ app.get('/api/install', verifyShopifyRequest, async (req, res) => {
   const { shop } = req.query;
   
   res.send(`
-    
-    
-      
+    <!DOCTYPE html>
+    <html>
+      <head>
         <title>IntimaSync - Installing...</title>
         <style>
           body { 
@@ -164,8 +164,8 @@ app.get('/api/install', verifyShopifyRequest, async (req, res) => {
           .spinner { border: 3px solid #f3f3f3; border-top: 3px solid #5c6ac4; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
           @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         </style>
-      
-      
+      </head>
+      <body>
         <div class="container">
           <h1>IntimaSync</h1>
           <div class="spinner"></div>
@@ -177,8 +177,8 @@ app.get('/api/install', verifyShopifyRequest, async (req, res) => {
             }, 3000);
           </script>
         </div>
-      
-    
+      </body>
+    </html>
   `);
 });
 
@@ -187,9 +187,9 @@ app.get('/app', async (req, res) => {
   const { shop } = req.query;
   
   res.send(`
-    
-    
-      
+    <!DOCTYPE html>
+    <html>
+      <head>
         <title>IntimaSync Dashboard</title>
         <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
         <style>
@@ -218,8 +218,8 @@ app.get('/app', async (req, res) => {
           .welcome-steps ol { margin: 12px 0 0 16px; }
           .welcome-steps li { color: #454f5b; margin-bottom: 8px; }
         </style>
-      
-      
+      </head>
+      <body>
         <div class="dashboard">
           <div class="header">
             <h1>IntimaSync</h1>
@@ -294,30 +294,29 @@ app.get('/app', async (req, res) => {
           
           function showWelcome() {
             setActiveButton('welcome-btn');
-            document.getElementById('content').innerHTML = \`
-              <h2>Welcome to IntimaSync!</h2>
-              <p>Your multi-supplier inventory management system is ready to configure.</p>
-              
-              <div class="welcome-steps">
-                <h3>Quick Start Guide</h3>
-                <ol>
-                  <li><strong>Configure Suppliers:</strong> Click "Settings" to add your supplier credentials</li>
-                  <li><strong>Test Connections:</strong> Verify that all supplier APIs are working</li>
-                  <li><strong>Sync Products:</strong> Import products from your suppliers</li>
-                  <li><strong>Manage Inventory:</strong> Use price comparison and intelligent routing</li>
-                  <li><strong>Process Orders:</strong> Automatic routing to cheapest suppliers</li>
-                </ol>
-              </div>
-              
-              <h3>Supported Suppliers</h3>
-              <ul>
-                <li><strong>Nalpac</strong> - REST API Integration with real-time inventory</li>
-                <li><strong>Honey's Place</strong> - Data Feed Integration (JSON/XML/CSV)</li>
-                <li><strong>Eldorado</strong> - SFTP Integration with file processing</li>
-              </ul>
-              
-              <p><strong>Ready to get started?</strong> Click "Settings" to configure your first supplier connection.</p>
-            \`;
+            document.getElementById('content').innerHTML = '' +
+              '<h2>Welcome to IntimaSync!</h2>' +
+              '<p>Your multi-supplier inventory management system is ready to configure.</p>' +
+              '' +
+              '<div class="welcome-steps">' +
+                '<h3>Quick Start Guide</h3>' +
+                '<ol>' +
+                  '<li><strong>Configure Suppliers:</strong> Click "Settings" to add your supplier credentials</li>' +
+                  '<li><strong>Test Connections:</strong> Verify that all supplier APIs are working</li>' +
+                  '<li><strong>Sync Products:</strong> Import products from your suppliers</li>' +
+                  '<li><strong>Manage Inventory:</strong> Use price comparison and intelligent routing</li>' +
+                  '<li><strong>Process Orders:</strong> Automatic routing to cheapest suppliers</li>' +
+                '</ol>' +
+              '</div>' +
+              '' +
+              '<h3>Supported Suppliers</h3>' +
+              '<ul>' +
+                '<li><strong>Nalpac</strong> - REST API Integration with real-time inventory</li>' +
+                '<li><strong>Honey\'s Place</strong> - Data Feed Integration (JSON/XML/CSV)</li>' +
+                '<li><strong>Eldorado</strong> - SFTP Integration with file processing</li>' +
+              '</ul>' +
+              '' +
+              '<p><strong>Ready to get started?</strong> Click "Settings" to configure your first supplier connection.</p>';
           }
           
           async function showSuppliers() {
@@ -325,22 +324,20 @@ app.get('/app', async (req, res) => {
             const result = await apiCall('/api/suppliers');
             suppliers = result.success ? result.data.suppliers || [] : [];
             
-            document.getElementById('content').innerHTML = \`
-              <h2>Supplier Management</h2>
-              <p>Configure and manage your supplier connections.</p>
-              
-              <div id="supplier-status">
-                <h3>Supplier Status (\${suppliers.length} configured)</h3>
-                <div id="supplier-cards"></div>
-              </div>
-              
-              \${suppliers.length === 0 ? \`
-              <div style="text-align: center; padding: 40px; background: #f8f9fa; border-radius: 4px; margin: 20px 0;">
-                <p><strong>No suppliers configured yet</strong></p>
-                <p>Go to "Settings" to configure your supplier credentials.</p>
-              </div>
-              \` : ''}
-            \`;
+            document.getElementById('content').innerHTML = '' +
+              '<h2>Supplier Management</h2>' +
+              '<p>Configure and manage your supplier connections.</p>' +
+              '' +
+              '<div id="supplier-status">' +
+                '<h3>Supplier Status (' + suppliers.length + ' configured)</h3>' +
+                '<div id="supplier-cards"></div>' +
+              '</div>' +
+              '' +
+              (suppliers.length === 0 ? 
+              '<div style="text-align: center; padding: 40px; background: #f8f9fa; border-radius: 4px; margin: 20px 0;">' +
+                '<p><strong>No suppliers configured yet</strong></p>' +
+                '<p>Go to "Settings" to configure your supplier credentials.</p>' +
+              '</div>' : '');
             
             renderSupplierCards();
           }
@@ -354,21 +351,21 @@ app.get('/app', async (req, res) => {
               return;
             }
             
-            container.innerHTML = suppliers.map(supplier => \`
-              <div style="border: 1px solid #e1e3e5; padding: 15px; margin: 10px 0; border-radius: 4px; background: white;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                  <div>
-                    <h4 style="margin: 0;">\${supplier.name}</h4>
-                    <p style="margin: 5px 0; color: #637381;">Type: \${supplier.type}</p>
-                    <p style="margin: 5px 0;">Status: <span style="color: \${supplier.isConnected ? 'green' : 'red'}">\${supplier.isConnected ? '✅ Connected' : '❌ Not Connected'}</span></p>
-                  </div>
-                  <div>
-                    <button onclick="testConnection(\${supplier.id})" style="background: #0084ff; color: white; border: none; padding: 6px 12px; border-radius: 4px; margin: 2px; cursor: pointer; font-size: 12px;">Test</button>
-                    <button onclick="syncProducts(\${supplier.id})" style="background: #28a745; color: white; border: none; padding: 6px 12px; border-radius: 4px; margin: 2px; cursor: pointer; font-size: 12px;">Sync</button>
-                  </div>
-                </div>
-              </div>
-            \`).join('');
+            container.innerHTML = suppliers.map(supplier => 
+              '<div style="border: 1px solid #e1e3e5; padding: 15px; margin: 10px 0; border-radius: 4px; background: white;">' +
+                '<div style="display: flex; justify-content: space-between; align-items: center;">' +
+                  '<div>' +
+                    '<h4 style="margin: 0;">' + supplier.name + '</h4>' +
+                    '<p style="margin: 5px 0; color: #637381;">Type: ' + supplier.type + '</p>' +
+                    '<p style="margin: 5px 0;">Status: <span style="color: ' + (supplier.isConnected ? 'green' : 'red') + '">' + (supplier.isConnected ? '✅ Connected' : '❌ Not Connected') + '</span></p>' +
+                  '</div>' +
+                  '<div>' +
+                    '<button onclick="testConnection(' + supplier.id + ')" style="background: #0084ff; color: white; border: none; padding: 6px 12px; border-radius: 4px; margin: 2px; cursor: pointer; font-size: 12px;">Test</button>' +
+                    '<button onclick="syncProducts(' + supplier.id + ')" style="background: #28a745; color: white; border: none; padding: 6px 12px; border-radius: 4px; margin: 2px; cursor: pointer; font-size: 12px;">Sync</button>' +
+                  '</div>' +
+                '</div>' +
+              '</div>'
+            ).join('');
           }
           
           async function showProducts() {
@@ -376,27 +373,25 @@ app.get('/app', async (req, res) => {
             const result = await apiCall('/api/products');
             products = result.success ? result.data.products || [] : [];
             
-            document.getElementById('content').innerHTML = \`
-              <h2>Product Management</h2>
-              <p>Sync and manage products from all connected suppliers.</p>
-              
-              <div style="margin: 20px 0;">
-                <button onclick="syncAllProducts()" style="background: #28a745; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">Sync All</button>
-              </div>
-              
-              <div id="products-list">
-                <h3>Products (\${products.length})</h3>
-                <div id="products-container"></div>
-              </div>
-              
-              \${products.length === 0 ? \`
-              <div style="text-align: center; padding: 40px; background: #f8f9fa; border-radius: 4px; margin: 20px 0;">
-                <p><strong>No products found</strong></p>
-                <p>Sync products from your suppliers to get started.</p>
-                <button onclick="showSettings()" style="background: #5c6ac4; color: white; border: none; padding: 12px 20px; border-radius: 4px; cursor: pointer;">Configure Suppliers</button>
-              </div>
-              \` : ''}
-            \`;
+            document.getElementById('content').innerHTML = '' +
+              '<h2>Product Management</h2>' +
+              '<p>Sync and manage products from all connected suppliers.</p>' +
+              '' +
+              '<div style="margin: 20px 0;">' +
+                '<button onclick="syncAllProducts()" style="background: #28a745; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">Sync All</button>' +
+              '</div>' +
+              '' +
+              '<div id="products-list">' +
+                '<h3>Products (' + products.length + ')</h3>' +
+                '<div id="products-container"></div>' +
+              '</div>' +
+              '' +
+              (products.length === 0 ? 
+              '<div style="text-align: center; padding: 40px; background: #f8f9fa; border-radius: 4px; margin: 20px 0;">' +
+                '<p><strong>No products found</strong></p>' +
+                '<p>Sync products from your suppliers to get started.</p>' +
+                '<button onclick="showSettings()" style="background: #5c6ac4; color: white; border: none; padding: 12px 20px; border-radius: 4px; cursor: pointer;">Configure Suppliers</button>' +
+              '</div>' : '');
             
             renderProducts();
           }
@@ -405,13 +400,13 @@ app.get('/app', async (req, res) => {
             const container = document.getElementById('products-container');
             if (!container || products.length === 0) return;
             
-            container.innerHTML = products.slice(0, 20).map(product => \`
-              <div style="border: 1px solid #e1e3e5; padding: 15px; margin: 10px 0; border-radius: 4px; background: white;">
-                <h4 style="margin: 0 0 8px 0;">\${product.name}</h4>
-                <p style="margin: 4px 0; color: #637381; font-size: 14px;">SKU: \${product.sku}</p>
-                <p style="margin: 4px 0; color: #637381; font-size: 14px;">Price: $\${product.price}</p>
-              </div>
-            \`).join('');
+            container.innerHTML = products.slice(0, 20).map(product => 
+              '<div style="border: 1px solid #e1e3e5; padding: 15px; margin: 10px 0; border-radius: 4px; background: white;">' +
+                '<h4 style="margin: 0 0 8px 0;">' + product.name + '</h4>' +
+                '<p style="margin: 4px 0; color: #637381; font-size: 14px;">SKU: ' + product.sku + '</p>' +
+                '<p style="margin: 4px 0; color: #637381; font-size: 14px;">Price: $' + product.price + '</p>' +
+              '</div>'
+            ).join('');
           }
           
           async function showOrders() {
@@ -419,94 +414,91 @@ app.get('/app', async (req, res) => {
             const result = await apiCall('/api/orders');
             const orders = result.success ? result.data.orders || [] : [];
             
-            document.getElementById('content').innerHTML = \`
-              <h2>Order Management</h2>
-              <p>Intelligent order routing and supplier management.</p>
-              
-              <div id="orders-list">
-                <h3>Recent Orders (\${orders.length})</h3>
-                <div id="orders-container"></div>
-              </div>
-              
-              \${orders.length === 0 ? \`
-              <div style="text-align: center; padding: 40px; background: #f8f9fa; border-radius: 4px; margin: 20px 0;">
-                <p><strong>No orders found</strong></p>
-                <p>Orders will appear here when customers place orders.</p>
-              </div>
-              \` : ''}
-              
-              <div style="margin-top: 30px;">
-                <h3>Smart Order Routing Features</h3>
-                <ul style="list-style-type: none; padding: 0;">
-                  <li style="margin: 8px 0;"><span style="color: #28a745;">✅</span> Cost Optimization</li>
-                  <li style="margin: 8px 0;"><span style="color: #28a745;">✅</span> Shipping Consolidation</li>
-                  <li style="margin: 8px 0;"><span style="color: #28a745;">✅</span> Availability Check</li>
-                  <li style="margin: 8px 0;"><span style="color: #28a745;">✅</span> Order Tracking</li>
-                </ul>
-              </div>
-            \`;
+            document.getElementById('content').innerHTML = '' +
+              '<h2>Order Management</h2>' +
+              '<p>Intelligent order routing and supplier management.</p>' +
+              '' +
+              '<div id="orders-list">' +
+                '<h3>Recent Orders (' + orders.length + ')</h3>' +
+                '<div id="orders-container"></div>' +
+              '</div>' +
+              '' +
+              (orders.length === 0 ? 
+              '<div style="text-align: center; padding: 40px; background: #f8f9fa; border-radius: 4px; margin: 20px 0;">' +
+                '<p><strong>No orders found</strong></p>' +
+                '<p>Orders will appear here when customers place orders.</p>' +
+              '</div>' : '') +
+              '' +
+              '<div style="margin-top: 30px;">' +
+                '<h3>Smart Order Routing Features</h3>' +
+                '<ul style="list-style-type: none; padding: 0;">' +
+                  '<li style="margin: 8px 0;"><span style="color: #28a745;">✅</span> Cost Optimization</li>' +
+                  '<li style="margin: 8px 0;"><span style="color: #28a745;">✅</span> Shipping Consolidation</li>' +
+                  '<li style="margin: 8px 0;"><span style="color: #28a745;">✅</span> Availability Check</li>' +
+                  '<li style="margin: 8px 0;"><span style="color: #28a745;">✅</span> Order Tracking</li>' +
+                '</ul>' +
+              '</div>';
           }
           
           function showSettings() {
             setActiveButton('settings-btn');
-            document.getElementById('content').innerHTML = \`
-              <h2>Settings & Configuration</h2>
-              <p>Configure your supplier credentials and test API connections.</p>
-              
-              <form id="supplier-credentials-form" style="max-width: 600px;">
-                
-                <div style="border: 1px solid #e1e3e5; padding: 20px; margin: 20px 0; border-radius: 4px; background: white;">
-                  <h3 style="color: #5c6ac4; margin-top: 0;">Nalpac Credentials</h3>
-                  <div style="margin: 15px 0;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: 500;">Username:</label>
-                    <input type="text" id="nalpac-username" placeholder="Enter your Nalpac username" style="width: 100%; padding: 8px 12px; border: 1px solid #c4cdd5; border-radius: 4px;">
-                  </div>
-                  <div style="margin: 15px 0;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: 500;">Password:</label>
-                    <input type="password" id="nalpac-password" placeholder="Enter your Nalpac password" style="width: 100%; padding: 8px 12px; border: 1px solid #c4cdd5; border-radius: 4px;">
-                  </div>
-                  <div id="nalpac-status" style="margin: 10px 0; font-size: 14px;"></div>
-                </div>
-                
-                <div style="border: 1px solid #e1e3e5; padding: 20px; margin: 20px 0; border-radius: 4px; background: white;">
-                  <h3 style="color: #5c6ac4; margin-top: 0;">Honey's Place Credentials</h3>
-                  <div style="margin: 15px 0;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: 500;">Username:</label>
-                    <input type="text" id="honeys-username" placeholder="Enter your Honey's Place username" style="width: 100%; padding: 8px 12px; border: 1px solid #c4cdd5; border-radius: 4px;">
-                  </div>
-                  <div style="margin: 15px 0;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: 500;">API Token:</label>
-                    <input type="text" id="honeys-token" placeholder="Enter your Honey's Place API token" style="width: 100%; padding: 8px 12px; border: 1px solid #c4cdd5; border-radius: 4px;">
-                  </div>
-                  <div id="honeys-status" style="margin: 10px 0; font-size: 14px;"></div>
-                </div>
-                
-                <div style="border: 1px solid #e1e3e5; padding: 20px; margin: 20px 0; border-radius: 4px; background: white;">
-                  <h3 style="color: #5c6ac4; margin-top: 0;">Eldorado Credentials</h3>
-                  <div style="margin: 15px 0;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: 500;">SFTP Username:</label>
-                    <input type="text" id="eldorado-username" placeholder="Enter your Eldorado SFTP username" style="width: 100%; padding: 8px 12px; border: 1px solid #c4cdd5; border-radius: 4px;">
-                  </div>
-                  <div style="margin: 15px 0;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: 500;">SFTP Password:</label>
-                    <input type="password" id="eldorado-password" placeholder="Enter your Eldorado SFTP password" style="width: 100%; padding: 8px 12px; border: 1px solid #c4cdd5; border-radius: 4px;">
-                  </div>
-                  <div style="margin: 15px 0;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: 500;">Account Number:</label>
-                    <input type="text" id="eldorado-account" placeholder="Enter your Eldorado account number" style="width: 100%; padding: 8px 12px; border: 1px solid #c4cdd5; border-radius: 4px;">
-                  </div>
-                  <div id="eldorado-status" style="margin: 10px 0; font-size: 14px;"></div>
-                </div>
-                
-                <div style="margin: 30px 0; text-align: center;">
-                  <button type="button" onclick="saveAllSuppliers()" style="background: #28a745; color: white; border: none; padding: 15px 30px; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: 500; margin-right: 15px;">Save</button>
-                  <button type="button" onclick="testAllConnections()" style="background: #0084ff; color: white; border: none; padding: 15px 30px; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: 500;">Test All Connections</button>
-                </div>
-                
-              </form>
-              
-              <div id="existing-suppliers" style="margin-top: 40px;"></div>
-            \`;
+            document.getElementById('content').innerHTML = '' +
+              '<h2>Settings & Configuration</h2>' +
+              '<p>Configure your supplier credentials and test API connections.</p>' +
+              '' +
+              '<form id="supplier-credentials-form" style="max-width: 600px;">' +
+                '' +
+                '<div style="border: 1px solid #e1e3e5; padding: 20px; margin: 20px 0; border-radius: 4px; background: white;">' +
+                  '<h3 style="color: #5c6ac4; margin-top: 0;">Nalpac Credentials</h3>' +
+                  '<div style="margin: 15px 0;">' +
+                    '<label style="display: block; margin-bottom: 5px; font-weight: 500;">Username:</label>' +
+                    '<input type="text" id="nalpac-username" placeholder="Enter your Nalpac username" style="width: 100%; padding: 8px 12px; border: 1px solid #c4cdd5; border-radius: 4px;">' +
+                  '</div>' +
+                  '<div style="margin: 15px 0;">' +
+                    '<label style="display: block; margin-bottom: 5px; font-weight: 500;">Password:</label>' +
+                    '<input type="password" id="nalpac-password" placeholder="Enter your Nalpac password" style="width: 100%; padding: 8px 12px; border: 1px solid #c4cdd5; border-radius: 4px;">' +
+                  '</div>' +
+                  '<div id="nalpac-status" style="margin: 10px 0; font-size: 14px;"></div>' +
+                '</div>' +
+                '' +
+                '<div style="border: 1px solid #e1e3e5; padding: 20px; margin: 20px 0; border-radius: 4px; background: white;">' +
+                  '<h3 style="color: #5c6ac4; margin-top: 0;">Honey\'s Place Credentials</h3>' +
+                  '<div style="margin: 15px 0;">' +
+                    '<label style="display: block; margin-bottom: 5px; font-weight: 500;">Username:</label>' +
+                    '<input type="text" id="honeys-username" placeholder="Enter your Honey\'s Place username" style="width: 100%; padding: 8px 12px; border: 1px solid #c4cdd5; border-radius: 4px;">' +
+                  '</div>' +
+                  '<div style="margin: 15px 0;">' +
+                    '<label style="display: block; margin-bottom: 5px; font-weight: 500;">API Token:</label>' +
+                    '<input type="text" id="honeys-token" placeholder="Enter your Honey\'s Place API token" style="width: 100%; padding: 8px 12px; border: 1px solid #c4cdd5; border-radius: 4px;">' +
+                  '</div>' +
+                  '<div id="honeys-status" style="margin: 10px 0; font-size: 14px;"></div>' +
+                '</div>' +
+                '' +
+                '<div style="border: 1px solid #e1e3e5; padding: 20px; margin: 20px 0; border-radius: 4px; background: white;">' +
+                  '<h3 style="color: #5c6ac4; margin-top: 0;">Eldorado Credentials</h3>' +
+                  '<div style="margin: 15px 0;">' +
+                    '<label style="display: block; margin-bottom: 5px; font-weight: 500;">SFTP Username:</label>' +
+                    '<input type="text" id="eldorado-username" placeholder="Enter your Eldorado SFTP username" style="width: 100%; padding: 8px 12px; border: 1px solid #c4cdd5; border-radius: 4px;">' +
+                  '</div>' +
+                  '<div style="margin: 15px 0;">' +
+                    '<label style="display: block; margin-bottom: 5px; font-weight: 500;">SFTP Password:</label>' +
+                    '<input type="password" id="eldorado-password" placeholder="Enter your Eldorado SFTP password" style="width: 100%; padding: 8px 12px; border: 1px solid #c4cdd5; border-radius: 4px;">' +
+                  '</div>' +
+                  '<div style="margin: 15px 0;">' +
+                    '<label style="display: block; margin-bottom: 5px; font-weight: 500;">Account Number:</label>' +
+                    '<input type="text" id="eldorado-account" placeholder="Enter your Eldorado account number" style="width: 100%; padding: 8px 12px; border: 1px solid #c4cdd5; border-radius: 4px;">' +
+                  '</div>' +
+                  '<div id="eldorado-status" style="margin: 10px 0; font-size: 14px;"></div>' +
+                '</div>' +
+                '' +
+                '<div style="margin: 30px 0; text-align: center;">' +
+                  '<button type="button" onclick="saveAllSuppliers()" style="background: #28a745; color: white; border: none; padding: 15px 30px; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: 500; margin-right: 15px;">Save</button>' +
+                  '<button type="button" onclick="testAllConnections()" style="background: #0084ff; color: white; border: none; padding: 15px 30px; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: 500;">Test All Connections</button>' +
+                '</div>' +
+                '' +
+              '</form>' +
+              '' +
+              '<div id="existing-suppliers" style="margin-top: 40px;"></div>';
             
             loadSuppliers();
             renderSuppliers();
@@ -547,14 +539,14 @@ app.get('/app', async (req, res) => {
             document.getElementById('honeys-status').innerHTML = '';
             document.getElementById('eldorado-status').innerHTML = '';
             
-            const suppliers = [];
+            const suppliersToSave = [];
             
             // Get Nalpac credentials
             const nalpacUsername = document.getElementById('nalpac-username').value.trim();
             const nalpacPassword = document.getElementById('nalpac-password').value.trim();
             
             if (nalpacUsername && nalpacPassword) {
-              suppliers.push({
+              suppliersToSave.push({
                 name: 'Nalpac',
                 type: 'nalpac',
                 credentials: { username: nalpacUsername, password: nalpacPassword }
@@ -566,7 +558,7 @@ app.get('/app', async (req, res) => {
             const honeysToken = document.getElementById('honeys-token').value.trim();
             
             if (honeysUsername && honeysToken) {
-              suppliers.push({
+              suppliersToSave.push({
                 name: 'Honeys Place',
                 type: 'honeys',
                 credentials: { username: honeysUsername, token: honeysToken }
@@ -579,41 +571,41 @@ app.get('/app', async (req, res) => {
             const eldoradoAccount = document.getElementById('eldorado-account').value.trim();
             
             if (eldoradoUsername && eldoradoPassword && eldoradoAccount) {
-              suppliers.push({
+              suppliersToSave.push({
                 name: 'Eldorado',
                 type: 'eldorado',
                 credentials: { username: eldoradoUsername, password: eldoradoPassword, account: eldoradoAccount }
               });
             }
             
-            if (suppliers.length === 0) {
+            if (suppliersToSave.length === 0) {
               alert('Please fill in credentials for at least one supplier.');
               return;
             }
             
             // Save each supplier
             let savedCount = 0;
-            for (const supplier of suppliers) {
+            for (const supplierData of suppliersToSave) {
               try {
                 const result = await apiCall('/api/suppliers', {
                   method: 'POST',
-                  body: JSON.stringify(supplier)
+                  body: JSON.stringify(supplierData)
                 });
                 
                 if (result.success) {
                   savedCount++;
-                  const statusDiv = document.getElementById(supplier.type + '-status');
+                  const statusDiv = document.getElementById(supplierData.type + '-status');
                   if (statusDiv) {
                     statusDiv.innerHTML = '<span style="color: green;">✅ Saved successfully!</span>';
                   }
                 } else {
-                  const statusDiv = document.getElementById(supplier.type + '-status');
+                  const statusDiv = document.getElementById(supplierData.type + '-status');
                   if (statusDiv) {
                     statusDiv.innerHTML = '<span style="color: red;">❌ Failed to save</span>';
                   }
                 }
               } catch (error) {
-                const statusDiv = document.getElementById(supplier.type + '-status');
+                const statusDiv = document.getElementById(supplierData.type + '-status');
                 if (statusDiv) {
                   statusDiv.innerHTML = '<span style="color: red;">❌ Error: ' + error.message + '</span>';
                 }
@@ -624,12 +616,14 @@ app.get('/app', async (req, res) => {
               // Show success message
               const successMessage = document.createElement('div');
               successMessage.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #28a745; color: white; padding: 15px 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 1000; font-weight: 500;';
-              successMessage.innerHTML = \`✅ Successfully saved \${savedCount} supplier\${savedCount > 1 ? 's' : ''}!\`;
+              successMessage.innerHTML = '✅ Successfully saved ' + savedCount + ' supplier' + (savedCount > 1 ? 's' : '') + '!';
               document.body.appendChild(successMessage);
               
               // Remove success message after 4 seconds
               setTimeout(() => {
-                document.body.removeChild(successMessage);
+                if (document.body.contains(successMessage)) {
+                  document.body.removeChild(successMessage);
+                }
               }, 4000);
               
               await loadSuppliers();
@@ -670,7 +664,7 @@ app.get('/app', async (req, res) => {
                   if (result.success) {
                     statusDiv.innerHTML = '<span style="color: green;">✅ ' + (result.data.message || 'Connection successful!') + '</span>';
                   } else {
-                    statusDiv.innerHTML = '<span style="color: red;">❌ ' + (result.data?.message || result.error || 'Connection failed') + '</span>';
+                    statusDiv.innerHTML = '<span style="color: red;">❌ ' + (result.data && result.data.message || result.error || 'Connection failed') + '</span>';
                   }
                 }
               } catch (error) {
@@ -682,16 +676,16 @@ app.get('/app', async (req, res) => {
           }
           
           async function testConnection(supplierId) {
-            const resultDiv = document.getElementById(\`test-result-\${supplierId}\`);
+            const resultDiv = document.getElementById('test-result-' + supplierId);
             resultDiv.style.display = 'block';
             resultDiv.innerHTML = '<p>🔄 Testing connection...</p>';
             
-            const result = await apiCall(\`/api/suppliers/\${supplierId}/test-connection\`, { method: 'POST' });
+            const result = await apiCall('/api/suppliers/' + supplierId + '/test-connection', { method: 'POST' });
             
             if (result.success) {
-              resultDiv.innerHTML = \`<p style="color: green">✅ \${result.data.message || 'Connection successful!'}</p>\`;
+              resultDiv.innerHTML = '<p style="color: green">✅ ' + (result.data.message || 'Connection successful!') + '</p>';
             } else {
-              resultDiv.innerHTML = \`<p style="color: red">❌ \${result.data?.message || result.error || 'Connection failed'}</p>\`;
+              resultDiv.innerHTML = '<p style="color: red">❌ ' + (result.data && result.data.message || result.error || 'Connection failed') + '</p>';
             }
           }
           
@@ -711,7 +705,7 @@ app.get('/app', async (req, res) => {
           async function removeSupplier(supplierId) {
             if (!confirm('Are you sure you want to remove this supplier?')) return;
             
-            const result = await apiCall(\`/api/suppliers/\${supplierId}\`, { method: 'DELETE' });
+            const result = await apiCall('/api/suppliers/' + supplierId, { method: 'DELETE' });
             
             if (result.success) {
               alert('Supplier removed successfully!');
@@ -744,8 +738,8 @@ app.get('/app', async (req, res) => {
             }
           }, 1000);
         </script>
-      
-    
+      </body>
+    </html>
   `);
 });
 
