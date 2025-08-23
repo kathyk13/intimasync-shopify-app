@@ -201,7 +201,8 @@ app.get('/api/install', verifyShopifyRequest, async (req, res) => {
           <p>Setting up multi-supplier inventory management...</p>
           <script>
             setTimeout(() => {
-              window.location.href = '/auth?shop=${shop || 'demo.myshopify.com'}';
+              // Use double quotes inside the template expression to avoid breaking single-quoted string
+              window.location.href = '/auth?shop=${shop || "demo.myshopify.com"}';
             }, 3000);
           </script>
         </div>
@@ -548,7 +549,8 @@ app.get('/app', async (req, res) => {
             const honeysToken = document.getElementById('honeys-token').value.trim();
             if (honeysUsername && honeysToken) {
               suppliersToSave.push({
-                name: 'Honey\'s Place',
+                // Avoid apostrophe which breaks quoting in the embedded HTML script
+                name: 'Honeys Place',
                 type: 'honeys',
                 credentials: { username: honeysUsername, token: honeysToken }
               });
