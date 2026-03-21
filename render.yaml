@@ -1,0 +1,41 @@
+# Render.com deployment configuration for IntimaSync
+
+services:
+  - type: web
+    name: intimasync
+    env: node
+    region: oregon
+    plan: starter  # $7/month - needed for static IP (required by Eldorado)
+    buildCommand: npm install && npm run setup
+    startCommand: npm run start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SHOPIFY_API_KEY
+        sync: false  # Set manually in Render dashboard
+      - key: SHOPIFY_API_SECRET
+        sync: false
+      - key: SHOPIFY_APP_URL
+        sync: false
+      - key: DATABASE_URL
+        sync: false  # Set to Supabase connection string
+      - key: SCOPES
+        value: "read_products,write_products,read_orders,write_orders,read_inventory,write_inventory,read_fulfillments,write_fulfillments"
+      - key: ENCRYPTION_KEY
+        generateValue: true  # Render generates a random secret
+
+  - type: cron
+    name: intimasync-daily-sync
+    env: node
+    region: oregon
+    schedule: "0 6 * * *"  # 6 AM UTC daily
+    buildCommand: npm install
+    startCommand: node scripts/daily-sync.js
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SHOPIFY_API_KEY
+        sync: false
+      - key: SHOPIFY_API_SECRET
+        sync: false
