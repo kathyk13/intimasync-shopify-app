@@ -1,17 +1,17 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 name = "IntimaSync"
-client_id = "YOUR_CLIENT_ID_HERE"
-application_url = "https://YOUR_APP_URL.onrender.com"
+client_id = "7889733f0e223e976809e260ebe040fd"
+application_url = "https://intimasync-backend.onrender.com"
 embedded = true
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_products,write_products,read_orders,write_orders,read_inventory,write_inventory,read_fulfillments,write_fulfillments"
+scopes = "read_products,write_products,read_orders,write_orders,read_inventory,write_inventory"
 
 [auth]
 redirect_urls = [
-  "https://YOUR_APP_URL.onrender.com/auth/callback"
+  "https://intimasync-backend.onrender.com/auth/callback"
 ]
 
 [webhooks]
@@ -34,4 +34,4 @@ embedded = false
 
 [build]
 automatically_update_urls_on_dev = true
-dev_store_url = "intimasync.myshopify.com"
+dev_store_url = "426b6d-7c.myshopify.com"
