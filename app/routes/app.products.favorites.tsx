@@ -27,32 +27,208 @@ import { useState } from "react";
 export async function loader({ request }: LoaderFunctionArgs) {
   const { session } = await authenticate.admin(request);
   const shop = await prisma.shop.findUnique({
-    where: { shopifyDomain: session.shop },(ô¤ì(¥ Í¡½À¤Ñ¡É½Ü¹ÜÉÉ½È M¡½À¹½Ð½Õ¹¤ì((½¹ÍÐÕÉ°ô¹ÜUI0¡ÉÅÕÍÐ¹ÕÉ°¤ì(½¹ÍÐÁôÁÉÍ%¹Ð¡ÕÉ°¹ÍÉ¡AÉµÌ¹Ð Á¤ñðÄ¤ì(½¹ÍÐÁÉAôÔÀì((½¹ÍÐmµÑ¡Ì°Ñ½Ñ±tôÝ¥ÐAÉ½µ¥Í¹±°¡l(ÁÉ¥Íµ¹ÁÉ½ÕÑ5Ñ ¹¥¹5¹ä (Ý¡ÉèìÍ¡½Á%Î-¡½À¹¥°¥ÍÙ½É¥ÑèÑÉÕô°(Í­¥Àè¡Á´Ä¤¨ÁÉA°(Ñ­èÁÉA°(½ÉÉ	äèìÕÁÑÐèÍô°(ô°¤°(ÁÉ¥Íµ¹ÁÉ½ÕÑ5Ñ ¹½Õ¹Ð¡ìÝ¡ÉèìÍ¡½Á%N!ÁÔ¹¥°¥ÍÙ½É¥ÑèÑÉÕôô¤°(t¤ì((½¹ÍÐÉ½ÝÌôÝ¥ÐAÉ½µ¥Í¹±° (µÑ¡Ì¹µÀ¡Íå¹¡µÑ ¤ôøì(½¹ÍÐÍÕÁÁ±¥ÉAÉ½ÕÑÌôÝ¥ÐÁÉ¥Íµ¹ÍÕÁÁ±¥ÉAÉ½ÕÐ¹¥¹5¹ä¡ì(Ý¡ÉèìÍ¡½Á%èÍ¡½À¹¥°ÕÁèµÑ ¹ÕÁô°(ô¤ì((½¹ÍÐ¹½¹¥°ôÍÕÁÁ±¥ÉAÉ½ÕÑÍlÁtñð¹Õ±°ì(½¹ÍÐ¥µÌô¹½¹¥°ü¹¥µÍ)Í½¸ü)M=8¹ÁÉÍ¡¹½¹¥°¹¥µÍ)Í½¸¤èmtì((¼¼¥¹±½ÝÍÐ½ÍÐÝ¥Ñ ÍÑ½¬(±Ð±½ÝÍÑ
-½ÍÐè¹ÕµÈð¹Õ±°ô¹Õ±°ì(±Ð±½ÝÍÑMÕÁÁ±¥ÈèÍÑÉ¥¹ð¹Õ±°ô¹Õ±°ì(½È¡½¹ÍÐÍÀ½ÍÕÁÁ±¥ÉAÉ½ÕÑÌ¤ì(¥¡ÍÀ¹¥¹Ù¹Ñ½ÉåEÑäøÀÍÀ¹½ÍÐô¹Õ±°¤ì(¥¡±½ÝÍÑ
-½ÍÐôôô¹Õ±°ñð¡ÍÀ¹½ÍÐÍÀ¹½ÍÐð±½ÝÍÑ
-½ÍÐ¤¤ì(±½ÝÍÑ
-½ÍÐôÍÀ¹½ÍÐì(±½ÝÍÑMÕÁÁ±¥ÈôÍÀ¹ÍÕÁÁ±¥Èì(ô(ô(ô((ÉÑÕÉ¸ì(ÕÁèµÑ ¹ÕÁ°(Ñ¥Ñ±è¹½¹¥°ü¹Ñ¥Ñ±ñðU¹­¹½Ý¸AÉ½ÕÐ°(¥µUÉ°è¥µÍlÁtñð¹Õ±°°(Í¡½Á¥åAÉ½ÕÑ%èµÑ ¹Í¡½Á¥åAÉ½ÕÑ%(H­MÕÁÁ±¥ÈèµÑ ¹±½­MÕÁÁ±¥È°(±½ÝÍÑ
-½ÍÐ°(±½ÝÍÑMÕÁÁ±¥ÈèµÑ ¹±½­MÕÁÁ±¥Èñð±½ÝÍÑMÕÁÁ±¥È°(ôì(ô¤(¤ì((ÉÑÕÉ¸©Í½¸¡ìÉ½ÝÌ°Ñ½Ñ°°Á°ÁÉAô¤ì)ô()áÁ½ÉÐÍå¹Õ¹Ñ¥½¸Ñ¥½¸¡ìÉÅÕÍÐôèÑ¥½¹Õ¹Ñ¥½¹ÉÌ¤ì(½¹ÍÐìÍÍÍ¥½¸ôôÝ¥ÐÕÑ¡¹Ñ¥Ñ¹µ¥¸¡ÉÅÕÍÐ¤ì(½¹ÍÐÍ¡½ÀôÝ¥ÐÁÉ¥Íµ¹Í¡½À¹¥¹U¹¥ÅÕ¡ì(Ý¡ÉèìÍ¡½Á¥å½µ¥¸èÍÍÍ¥½¸¹Í¡½Àô°(ô¤ì(¥ Í¡½À¤ÉÑÕÉ¸©Í½¸¡ì½¬è±Íô¤ì((½¹ÍÐ½ÉµÑôÝ¥ÐÉÅÕÍÐ¹½ÉµÑ ¤ì(½¹ÍÐ¥¹Ñ¹Ðô½ÉµÑ¹Ð ¥¹Ñ¹Ð¤ì(½¹ÍÐÕÁôMÑÉ¥¹¡½ÉµÑ¹Ð ÕÁ¤¤ì((¥¡¥¹Ñ¹ÐôôôÉµ½Ù}Ù½É¥Ñ¤ì(½¹ÍÐµÑ ôÝ¥ÐÁÉ¥Íµ¹ÁÉ½ÕÑ5Ñ ¹¥¹¥ÉÍÐ¡ì(Ý¡ÉèìÍ¡½Á%N!ÁÔ¹¥°ÕÁô°(ô¤ì(¥¡µÑ ¤ì(Ý¥ÐÁÉ¥Íµ¹ÁÉ½ÕÑ5Ñ ¹ÕÁÑ¡ì(Ý¡Éèì¥èµÑ ¹¥ô°(Ñèì¥ÍÙ½É¥Ñè±Íô°(ô¤ì(ô(ô((ÉÑÕÉ¸©Í½¸¡ì½¬èÑÉÕô¤ì)ô()½¹ÍÐÍÕÁÁ±¥É1°èI½ÉñÍÑÉ¥¹°ÍÑÉ¥¹øôì(±½É¼è±½É¼°(¡½¹åÍÁ±è!½¹äÌA±°(¹±Áè9±Á°)ôì()áÁ½ÉÐÕ±ÐÕ¹Ñ¥½¸Ù½É¥ÑÍA ¤ì(½¹ÍÐìÉ½ÝÌ°Ñ½Ñ°°Á°ÁÉAôôÕÍ1½ÉÑñÑåÁ½±½Èø ¤ì(½¹ÍÐÍÕµ¥ÐôÕÍMÕµ¥Ð ¤ì((¥¡É½ÝÌ¹±¹Ñ ôôôÀ¤ì(ÉÑÕÉ¸ (ñAÑ¥Ñ±ôÙ½É¥ÑÌø(ñµÁÑåMÑÑ(¡¥¹ô9¼Ù½É¥ÑÌåÐ(¥µô¡ÑÑÁÌè¼½¸¹Í¡½Á¥ä¹½´½Ì½¥±Ì¼Ä¼ÀÈØÈ¼ÐÀÜÄ¼ÈÜÈØ½¥±Ì½µÁÑåÍÑÑµ¥±Ì¹Á¹(Ñ¥½¸õíì½¹Ñ¹Ðè	É½ÝÍAÉ½ÕÑÌ°ÕÉ°è½ÁÀ½ÁÉ½ÕÑÌõô(ø(ñÀùMÑÈÁÉ½ÕÑÌ¥¸Ñ¡AÉ½ÕÑÌÙ¥ÜÑ¼Ñ¡´Ñ¼å½ÕÈÙ½É¥ÑÌ±¥ÍÐ¸ð½Àø(ð½µÁÑåMÑÑø(ð½Aø(¤ì(ô((½¹ÍÐÉ½Ý5É­ÕÀôÉ½ÝÌ¹µÀ ¡É½Ü°¥¹à¤ôø (ñ%¹áQ±¹I½Ü¥õíÉ½Ü¹ÕÁô­äõíÉ½Ü¹ÕÁôÁ½Í¥Ñ¥½¸õí¥¹áôø(ñ%¹áQ±¹
-±°ø(ñQ¡Õµ¹¥°(Í½ÕÉõì(É½Ü¹¥µUÉ°ñð(¡ÑÑÁÌè¼½¸¹Í¡½Á¥ä¹½´½Ì½¥±Ì¼Ä¼ÀÔÌÌ¼ÈÀàä½¥±Ì½Á±¡½±Èµ¥µÌµÁÉ½ÕÐ´Å}Íµ±°¹Á¹(ô(±ÐõíÉ½Ü¹Ñ¥Ñ±ô(Í¥éôÍµ±°(¼ø(ð½%¹áQ±¹
-±°ø(ñ%¹áQ±¹
-±°ø(ñ1¥¹¬Ñ¼õí½ÁÀ½ÁÉ½ÕÑÌ¼íÉ½Ü¹ÕÁõôø(ñQáÐÌôÍÁ¸ÙÉ¥¹Ðô½å5½¹Ñ]¥¡ÐôÍµ¥½±ø(íÉ½Ü¹Ñ¥Ñ±ô(ð½QáÐø(ð½1¥¹¬ø(ð½%¹áQ±¹
-±°ø(ñ%¹áQ±¹
-±°ø(ñQáÐÌôÍÁ¸ÙÉ¥¹Ðô½åM´Ñ½¹ôÍÕÕø(íÉ½Ü¹ÕÁô(ð½QáÐø(ð½%¹áQ±¹
-±°ø(ñ%¹áQ±¹
-±°ø(ñQáÐÌôÍÁ¸ø(íÉ½Ü¹±½ÝÍÑ
-½ÍÐô¹Õ±°üí9ÕµÈ¡É½Ü¹±½ÝÍÑ
-½ÍÐ¤¹Ñ½¥á È¥õèPô(ð½QáÐø(ð½%¹áQ±¹
-±°ø(ñ%¹áQ±¹
-±°ø(íÉ½Ü¹±½ÝÍÑMÕÁÁ±¥Èü (ñ%¹±¥¹MÑ¬ÀôÄÀÀ±½­±¥¸ô¹ÑÈø(ñ	Ñ½¹õíÉ½Ü¹±½­MÕÁÁ±¥ÈüÑÑ¹Ñ¥½¸èÍÕÍÌôø(íÍÕÁÁ±¥É1±mÉ½Ü¹±½ÝÍÑMÕÁÁ±¥ÉtñðÉ½Ü¹±½ÝÍÑMÕÁÁ±¥Éô(ð½	ø(íÉ½Ü¹±½­MÕÁÁ±¥È (ñQ½½±Ñ¥À½¹Ñ¹Ðô5¹Õ±±ä±½­Ñ¼Ñ¡¥ÌÍÕÁÁ±¥Èø(ñQáÐÌôÍÁ¸Ñ½¹ôÍÕÕÙÉ¥¹Ðô½åM´ù1½­ð½QáÐø(ð½Q½½±Ñ¥Àø(¥ô(ð½%¹±¥¹MÑ¬ø(¤è (ñQáÐÌôÍÁ¸Ñ½¹ôÍÕÕù=ÕÐ½ÍÑ½¬ð½QáÐø(¥ô(ð½%¹áQ±¹
-±°ø(ñ%¹áQ±¹
-±°ø(íÉ½Ü¹Í¡½Á¥åAÉ½ÕÑ%ü (ñ	Ñ½¹ôÍÕÍÌù%¸M¡½Á¥äð½	ø(¤è (ñ	ÕÑÑ½¸(Í¥éôÍ±¥´(ÕÉ°õí½ÁÀ½ÁÉ½ÕÑÌ¼íÉ½Ü¹ÕÁõô(ø(%µÁ½ÉÐ(ð½	ÕÑÑ½¸ø(¥ô(ð½%¹áQ±¹
-±°ø(ñ%¹áQ±¹
-±°ø(ñ	ÕÑÑ½¸(Í¥éôÍ±¥´(ÙÉ¥¹ÐôÁ±¥¸(Ñ½¹ôÉ¥Ñ¥°(½¹
-±¥¬õì ¤ôøì(½¹ÍÐô¹Ü½ÉµÑ ¤ì(¹ÁÁ¹ ¥¹Ñ¹Ð°Éµ½Ù}Ù½É¥Ñ¤ì(¹ÁÁ¹ ÕÁ°É½Ü¹ÕÁ¤ì(ÍÕµ¥Ð¡°ìµÑ¡½èA=MPô¤ì(õô(ø(Iµ½Ù(ð½	ÕÑÑ½¸ø(ð½%¹áQ±¹
-±°ø(ð½%¹áQ±¹I½Üø((Ñ½Ñ°¹Ñ½1½±MÑÉ¥¹ ¥ôÙ½É¥ÑÁÉ½ÕÐíÑ½Ñ°ôôÄüÌèõô(ÁÉ¥µÉåÑ¥½¸õíì½¹Ñ¹Ðè½ÝÍ±°AÉ½ÕÑÌ°ÕÉ°è½ÁÀ½ÁÉ½ÕÑÌõô(ÔíAø(ñ1å½ÕÐø(ñ1å½ÕÐ¹MÑ¥½¸ø(ñ
-ÉÁ¥¹ôÀø(ñ%¹áQ±(ÉÍ½ÕÉ9µõíìÍ¥¹Õ±ÈèÁÉ½ÕÐ°Á±ÕÉ°èÁÉ½ÕÑÌõô(¥Ñµ
-½Õ¹ÐõíÑ½Ñ±ô(¡¥¹Ìõíl(ìÑ¥Ñ±èô°(ìÑ¥Ñ±èAÉ½ÕÐô°(ìÑ¥Ñ±èUAô°(ìÑ¥Ñ±è1½ÝÍÐ
-½ÍÐô°(ìÑ¥Ñ±èÕ±ÐMÕÁÁ±¥Èô°(ìÑ¥Ñ±èM¡½Á³eäô°(ìÑ¥Ñ±èô°(uô(Í±Ñ±õí±Íô(yAndexTable>
+    where: { shopifyDomain: session.shop },
+  });
+  if (!shop) throw new Error("Shop not found");
+
+  const url = new URL(request.url);
+  const page = parseInt(url.searchParams.get("page") || "1");
+  const perPage = 50;
+
+  const [matches, total] = await Promise.all([
+    prisma.productMatch.findMany({
+      where: { shopId: shop.id, isFavorite: true },
+      skip: (page - 1) * perPage,
+      take: perPage,
+      orderBy: { updatedAt: "desc" },
+    }),
+    prisma.productMatch.count({ where: { shopId: shop.id, isFavorite: true } }),
+  ]);
+
+  const rows = await Promise.all(
+    matches.map(async (match) => {
+      const supplierProducts = await prisma.supplierProduct.findMany({
+        where: { shopId: shop.id, upc: match.upc },
+      });
+
+      const canonical = supplierProducts[0] || null;
+      const images = canonical?.imagesJson ? JSON.parse(canonical.imagesJson) : [];
+
+      // Find lowest cost with stock
+      let lowestCost: number | null = null;
+      let lowestSupplier: string | null = null;
+      for (const sp of supplierProducts) {
+        if (sp.inventoryQty > 0 && sp.cost != null) {
+          if (lowestCost === null || (sp.cost && sp.cost < lowestCost)) {
+            lowestCost = sp.cost;
+            lowestSupplier = sp.supplier;
+          }
+        }
+      }
+
+      return {
+        upc: match.upc,
+        title: canonical?.title || "Unknown Product",
+        imageUrl: images[0] || null,
+        shopifyProductId: match.shopifyProductId,
+        lockedSupplier: match.lockedSupplier,
+        lowestCost,
+        lowestSupplier: match.lockedSupplier || lowestSupplier,
+      };
+    })
+  );
+
+  return json({ rows, total, page, perPage });
+}
+
+export async function action({ request }: ActionFunctionArgs) {
+  const { session } = await authenticate.admin(request);
+  const shop = await prisma.shop.findUnique({
+    where: { shopifyDomain: session.shop },
+  });
+  if (!shop) return json({ ok: false });
+
+  const formData = await request.formData();
+  const intent = formData.get("intent");
+  const upc = String(formData.get("upc"));
+
+  if (intent === "remove_favorite") {
+    const match = await prisma.productMatch.findFirst({
+      where: { shopId: shop.id, upc },
+    });
+    if (match) {
+      await prisma.productMatch.update({
+        where: { id: match.id },
+        data: { isFavorite: false },
+      });
+    }
+  }
+
+  return json({ ok: true });
+}
+
+const supplierLabel: Record<string, string> = {
+  eldorado: "Eldorado",
+  honeysplace: "Honey's Place",
+  nalpac: "Nalpac",
+};
+
+export default function FavoritesPage() {
+  const { rows, total, page, perPage } = useLoaderData<typeof loader>();
+  const submit = useSubmit();
+
+  if (rows.length === 0) {
+    return (
+      <Page title="Favorites">
+        <EmptyState
+          heading="No favorites yet"
+          image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
+          action={{ content: "Browse Products", url: "/app/products" }}
+        >
+          <p>Star products in the Products view to add them to your favorites list.</p>
+        </EmptyState>
+      </Page>
+    );
+  }
+
+  const rowMarkup = rows.map((row, index) => (
+    <IndexTable.Row id={row.upc} key={row.upc} position={index}>
+      <IndexTable.Cell>
+        <Thumbnail
+          source={
+            row.imageUrl ||
+            "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-product-1_small.png"
+          }
+          alt={row.title}
+          size="small"
+        />
+      </IndexTable.Cell>
+      <IndexTable.Cell>
+        <Link to={`/app/products/${row.upc}`}>
+          <Text as="span" variant="bodyMd" fontWeight="semibold">
+            {row.title}
+          </Text>
+        </Link>
+      </IndexTable.Cell>
+      <IndexTable.Cell>
+        <Text as="span" variant="bodySm" tone="subdued">
+          {row.upc}
+        </Text>
+      </IndexTable.Cell>
+      <IndexTable.Cell>
+        <Text as="span">
+          {row.lowestCost != null ? `$${Number(row.lowestCost).toFixed(2)}` : "â"}
+        </Text>
+      </IndexTable.Cell>
+      <IndexTable.Cell>
+        {row.lowestSupplier ? (
+          <InlineStack gap="100" blockAlign="center">
+            <Badge tone={row.lockedSupplier ? "attention" : "success"}>
+              {supplierLabel[row.lowestSupplier] || row.lowestSupplier}
+            </Badge>
+            {row.lockedSupplier && (
+              <Tooltip content="Manually locked to this supplier">
+                <Text as="span" tone="subdued" variant="bodySm">Locked</Text>
+              </Tooltip>
+            )}
+          </InlineStack>
+        ) : (
+          <Text as="span" tone="subdued">Out of stock</Text>
+        )}
+      </IndexTable.Cell>
+      <IndexTable.Cell>
+        {row.shopifyProductId ? (
+          <Badge tone="success">In Shopify</Badge>
+        ) : (
+          <Button
+            size="slim"
+            url={`/app/products/${row.upc}`}
+          >
+            Import
+          </Button>
+        )}
+      </IndexTable.Cell>
+      <IndexTable.Cell>
+        <Button
+          size="slim"
+          variant="plain"
+          tone="critical"
+          onClick={() => {
+            const fd = new FormData();
+            fd.append("intent", "remove_favorite");
+            fd.append("upc", row.upc);
+            submit(fd, { method: "POST" });
+          }}
+        >
+          Remove
+        </Button>
+      </IndexTable.Cell>
+    </IndexTable.Row>
+  ));
+
+  return (
+    <Page
+      title="Favorites"
+      subtitle={`${total.toLocaleString()} favorited product${total !== 1 ? "s" : ""}`}
+      primaryAction={{ content: "Browse All Products", url: "/app/products" }}
+    >
+      <Layout>
+        <Layout.Section>
+          <Card padding="0">
+            <IndexTable
+              resourceName={{ singular: "product", plural: "products" }}
+              itemCount={total}
+              headings={[
+                { title: "" },
+                { title: "Product" },
+                { title: "UPC" },
+                { title: "Lowest Cost" },
+                { title: "Default Supplier" },
+                { title: "Shopify" },
+                { title: "" },
+              ]}
+              selectable={false}
+            >
               {rowMarkup}
             </IndexTable>
           </Card>
