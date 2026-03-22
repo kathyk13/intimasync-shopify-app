@@ -8,10 +8,10 @@
 import type { SupplierCredential } from "@prisma/client";
 
 // ─── Types ───
-
 export interface HoneysPlaceCredentials {
   account: string;
   apiToken: string; // "password" in their API
+  feedToken: string; // data feed token
 }
 
 export interface HoneysPlaceProduct {
@@ -35,8 +35,8 @@ export interface HoneysPlaceOrderItem {
 
 export interface HoneysPlaceOrderRequest {
   reference: string; // your order number
-  shipBy: string;   // see Appendix A codes
-  date: string;     // MM/DD/YY
+  shipBy: string; // see Appendix A codes
+  date: string; // MM/DD/YY
   items: HoneysPlaceOrderItem[];
 }
 
@@ -63,7 +63,6 @@ export interface HoneysPlaceStockItem {
 }
 
 // ─── Credential helpers ───
-
 export function decryptCredentials(encrypted: string): HoneysPlaceCredentials {
   // In production, decrypt using app secret. For now, parse JSON.
   // TODO: replace with AES decryption using process.env.ENCRYPTION_KEY
@@ -76,7 +75,6 @@ export function encryptCredentials(creds: HoneysPlaceCredentials): string {
 }
 
 // ─── XML helpers ───
-
 function buildXmlEnvelope(
   account: string,
   password: string,
@@ -101,7 +99,6 @@ function parseXmlResponse(xml: string): Record<string, string> {
 }
 
 // ─── API Calls ───
-
 const BASE_URL = "https://www.honeysplace.com/ws/";
 
 /**
@@ -115,7 +112,7 @@ export async function checkStock(
     credentials.account,
     credentials.apiToken,
     `<stockcheck>
-<sku>${sku}</sku>
+  <sku>${sku}</sku>
 </stockcheck>`
   );
 
@@ -131,6 +128,7 @@ export async function checkStock(
 
   const responseText = await response.text();
   const parsed = parseXmlResponse(responseText);
+
   return {
     sku: parsed.sku || sku,
     qty: parseInt(parsed.qty || "0", 10),
@@ -145,12 +143,14 @@ export async function checkStockBatch(
   skus: string[]
 ): Promise<Map<string, number>> {
   const results = new Map<string, number>();
+
   // Honey's Place API checks one item at a time
   const promises = skus.map((sku) =>
     checkStock(credentials, sku).then((item) => {
       results.set(item.sku, item.qty);
     })
   );
+
   // Rate limit: process in batches of 5 concurrent requests
   const batchSize = 5;
   for (let i = 0; i < promises.length; i += batchSize) {
@@ -159,6 +159,7 @@ export async function checkStockBatch(
       await new Promise((r) => setTimeout(r, 200)); // 200ms between batches
     }
   }
+
   return results;
 }
 
@@ -177,12 +178,12 @@ export async function submitOrder(
     credentials.account,
     credentials.apiToken,
     `<order>
-<reference>${order.reference}</reference>
-<shipby>${order.shipBy}</shipby>
-<date>${order.date}</date>
-<items>
-${itemsXml}
-</items>
+  <reference>${order.reference}</reference>
+  <shipby>${order.shipBy}</shipby>
+  <date>${order.date}</date>
+  <items>
+    ${itemsXml}
+  </items>
 </order>`
   );
 
@@ -259,8 +260,17 @@ export async function checkOrderStatus(
 }
 
 /**
- * Fetch product catalog from Honey's Place data feed (JSON format)
- * Uses the pre-configured feed URL from the user's account
+ * Build the data feed URL from credentials
+ * HP feed format: https://www.honeysplace.com/DataFeed/json?account=ACCOUNT&token=FEEDTOKEN
+ */
+export function buildFeedUrl(credentials: HoneysPlaceCredentials): string {
+  return `https://www.honeysplace.com/DataFeed/json?account=${encodeURIComponent(credentials.account)}&token=${encodeURIComponent(credentials.feedToken)}`;
+}
+
+/**
+ * Fetch product catalog from Honey's Place data feed (JSON format).
+ * Handles the actual HP feed field names (ItemName, YourCost, QtyAvailable, ImageURL)
+ * as well as common fallback names for robustness.
  */
 export async function fetchProductFeed(
   feedUrl: string
@@ -270,23 +280,120 @@ export async function fetchProductFeed(
     throw new Error(`Honey's Place feed HTTP error: ${response.status}`);
   }
 
-  const data = await response.json() as any[];
-  return data.map((item: any) => ({
-    sku: String(item.sku || item.SKU || item["Item Number"] || ""),
-    upc: String(item.upc || item.UPC || item["UPC Code"] || ""),
-    title: String(item.title || item.Title || item["Product Name"] || ""),
-    description: String(item.description || item.Description || ""),
-    cost: parseFloat(String(item.cost || item.Cost || item["Wholesale Price"] || "0")),
-    msrp: parseFloat(String(item.retail_price || item["Retail Price"] || item.msrp || "0")),
-    inventoryQty: parseInt(String(item.quantity || item.Quantity || item.qty || "0"), 10),
-    category: String(item.category || item.Category || ""),
-    manufacturer: String(item.manufacturer || item.Manufacturer || item.brand || ""),
-    images: [
-      item.image_url || item.image || item["Image URL"] || "",
-      ...(item.additional_images ? (Array.isArray(item.additional_images) ? item.additional_images : [item.additional_images]) : []),
-    ].filter(Boolean),
-    weight: parseFloat(String(item.weight || "0")),
-  }));
+  const data = (await response.json()) as any[];
+
+  return data.map((item: any) => {
+    // Collect images: primary + alternates
+    const primaryImage =
+      item.ImageURL ||
+      item.image_url ||
+      item.image ||
+      item["Image URL"] ||
+      item.PrimaryImage ||
+      item.MainImage ||
+      "";
+
+    const altImages: string[] = [];
+    for (let i = 2; i <= 6; i++) {
+      const alt =
+        item[`ImageURL${i}`] ||
+        item[`AlternateImage${i}`] ||
+        item[`image_url_${i}`] ||
+        "";
+      if (alt) altImages.push(String(alt));
+    }
+    if (item.additional_images) {
+      if (Array.isArray(item.additional_images)) {
+        altImages.push(...item.additional_images.filter(Boolean).map(String));
+      } else {
+        altImages.push(String(item.additional_images));
+      }
+    }
+
+    return {
+      sku: String(
+        item.ItemNumber ||
+        item.sku ||
+        item.SKU ||
+        item["Item Number"] ||
+        item.itemNumber ||
+        ""
+      ),
+      upc: String(
+        item.UPCCode ||
+        item.upc ||
+        item.UPC ||
+        item["UPC Code"] ||
+        item.upcCode ||
+        ""
+      ),
+      title: String(
+        item.ItemName ||
+        item.ProductName ||
+        item.title ||
+        item.Title ||
+        item["Product Name"] ||
+        item.name ||
+        ""
+      ).trim(),
+      description: String(
+        item.Description ||
+        item.description ||
+        item.LongDescription ||
+        item.ShortDescription ||
+        ""
+      ),
+      cost: parseFloat(
+        String(
+          item.YourCost ??
+          item.WholesalePrice ??
+          item.cost ??
+          item.Cost ??
+          item["Wholesale Price"] ??
+          "0"
+        )
+      ),
+      msrp: parseFloat(
+        String(
+          item.MSRP ??
+          item.RetailPrice ??
+          item.retail_price ??
+          item["Retail Price"] ??
+          item.msrp ??
+          "0"
+        )
+      ),
+      inventoryQty: parseInt(
+        String(
+          item.QtyAvailable ??
+          item.QuantityAvailable ??
+          item.quantity ??
+          item.Quantity ??
+          item.qty ??
+          item.Stock ??
+          "0"
+        ),
+        10
+      ),
+      category: String(
+        item.Category ||
+        item.category ||
+        item.ProductType ||
+        item.Type ||
+        ""
+      ),
+      manufacturer: String(
+        item.Brand ||
+        item.Manufacturer ||
+        item.manufacturer ||
+        item.brand ||
+        item.Vendor ||
+        ""
+      ),
+      images: [primaryImage, ...altImages].filter(Boolean).map(String),
+      weight: parseFloat(String(item.Weight ?? item.weight ?? "0")),
+    };
+  });
 }
 
 /**
@@ -318,7 +425,6 @@ export async function validateCredentials(
 }
 
 // ─── Shipping Codes (Appendix A) ───
-
 export const SHIPPING_CODES = [
   { code: "F001", label: "FedEx First Overnight" },
   { code: "F002", label: "FedEx Priority Overnight" },
