@@ -3,8 +3,8 @@
  * Shopify App Billing - plan selection and subscription management
  */
 
-import { json, redirect, type LoaderFunctionArgs, type ActionFunctionArgs } from "@remix-run/node";
-import { useLoaderData, Form } from "@remix-run/react";
+import { json, type LoaderFunctionArgs, type ActionFunctionArgs } from "@remix-run/node";
+import { useLoaderData, Form, useLocation } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -15,10 +15,8 @@ import {
   Button,
   InlineStack,
   Divider,
-  List,
   Banner,
 } from "@shopify/polaris";
-import { CheckIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 
@@ -75,9 +73,6 @@ const PLANS = [
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const { session, billing } = await authenticate.admin(request);
-  const shop = await prisma.shop.findUnique({
-    where: { shopifyDomain: session.shop },
-  });
 
   let currentPlan = null;
   try {
@@ -114,14 +109,11 @@ export async function action({ request }: ActionFunctionArgs) {
 
 export default function BillingPage() {
   const { currentPlan } = useLoaderData<typeof loader>();
-  const url = new URL(window?.location?.href || "https://x.com");
-  const success = url.searchParams.get("success");
+  const location = useLocation();
+  const success = new URLSearchParams(location.search).get("success");
 
   return (
-    <Page
-      title="Billing"
-      subtitle="Choose the plan that fits your store"
-    >
+    <Page title="Billing" subtitle="Choose the plan that fits your store">
       <Layout>
         {success && (
           <Layout.Section>
@@ -171,7 +163,7 @@ export default function BillingPage() {
                       <BlockStack gap="200">
                         {plan.features.map((feature) => (
                           <InlineStack key={feature} gap="200" blockAlign="center">
-                            <Text as="span" tone="success">â</Text>
+                            <Text as="span" tone="success">✓</Text>
                             <Text as="span" variant="bodySm">{feature}</Text>
                           </InlineStack>
                         ))}
@@ -189,7 +181,7 @@ export default function BillingPage() {
                             ? "Current Plan"
                             : currentPlan
                             ? "Switch to " + plan.name
-                            : `Start Free Trial`}
+                            : "Start Free Trial"}
                         </Button>
                       </Form>
                     </BlockStack>
@@ -214,8 +206,7 @@ export default function BillingPage() {
                 <Text as="h3" variant="headingSm">Can I cancel anytime?</Text>
                 <Text as="p" tone="subdued">
                   Yes. Cancel directly from your Shopify admin under Apps &gt;
-                  IntimaSync. You'll retain access until the end of the billing
-                  period.
+                  IntimaSync. You'll retain access until the end of the billing period.
                 </Text>
                 <Text as="h3" variant="headingSm">What happens if I exceed my supplier limit?</Text>
                 <Text as="p" tone="subdued">
