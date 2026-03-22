@@ -4,7 +4,7 @@
  * Cards always open, equal height, buttons anchored at bottom
  */
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { json, type LoaderFunctionArgs, type ActionFunctionArgs } from "@remix-run/node";
 import { useLoaderData, useSubmit } from "@remix-run/react";
 import {
@@ -21,6 +21,8 @@ import {
   Divider,
   Banner,
   InlineStack,
+  Collapsible,
+  Box,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -41,26 +43,31 @@ export async function loader({ request }: LoaderFunctionArgs) {
     credMap[c.supplier] = { ...parsed, enabled: c.enabled, defaultShippingCode: c.defaultShippingCode };
   });
 
-  const priorityRaw = (shop as any).fulfillmentPriority || '["honeysplace","eldorado","nalpac","ecn","sextoydistributing"]';
+  const priorityRaw = (shop as any).fulfillmentPriority || '["honeysplace","eldorado","nalpac","ecn"]';
   let fulfillmentPriority: string[];
   try { fulfillmentPriority = JSON.parse(priorityRaw); }
-  catch { fulfillmentPriority = ["honeysplace", "eldorado", "nalpac", "ecn", "sextoydistributing"]; }
+  catch { fulfillmentPriority = ["honeysplace", "eldorado", "nalpac", "ecn"]; }
 
-  const allSuppliers = ["honeysplace", "eldorado", "nalpac", "ecn", "sextoydistributing"];
+  // Ensure all suppliers present (SexToyDistributing removed)
+  const allSuppliers = ["honeysplace", "eldorado", "nalpac", "ecn"];
   for (const s of allSuppliers) {
     if (!fulfillmentPriority.includes(s)) fulfillmentPriority.push(s);
   }
+  // Remove SexToyDistributing if still in saved priority list
+  fulfillmentPriority = fulfillmentPriority.filter(s => allSuppliers.includes(s));
+
+  const consolidationThreshold = (shop as any).consolidationThreshold ?? 10;
 
   return json({
     eldorado: credMap.eldorado || null,
     honeysplace: credMap.honeysplace || null,
     nalpac: credMap.nalpac || null,
     ecn: credMap.ecn || null,
-    sextoydistributing: credMap.sextoydistributing || null,
     hpShippingOptions: HP_SHIPPING.map((s) => ({ label: s.label, value: s.code })),
     eldShippingOptions: ELD_SHIPPING.map((s) => ({ label: s.label, value: s.code })),
     nalpacShippingOptions: NALPAC_SHIPPING.map((s) => ({ label: s.label, value: s.code })),
     fulfillmentPriority,
+    consolidationThreshold,
   });
 }
 
@@ -76,11 +83,12 @@ export async function action({ request }: ActionFunctionArgs) {
 
   if (intent === "save_fulfillment_priority") {
     const priority = String(formData.get("priority"));
+    const threshold = parseInt(String(formData.get("threshold") || "10"), 10);
     await (prisma.shop as any).update({
       where: { id: shop.id },
-      data: { fulfillmentPriority: priority },
+      data: { fulfillmentPriority: priority, consolidationThreshold: threshold },
     });
-    return json({ success: true, message: "Fulfillment priority saved." });
+    return json({ success: true, message: "Fulfillment settings saved." });
   }
 
   if (intent === "save_credentials") {
@@ -101,9 +109,6 @@ export async function action({ request }: ActionFunctionArgs) {
       credentials.username = String(formData.get("username") || "");
       credentials.password = String(formData.get("password") || "");
       credentials.accountId = String(formData.get("accountId") || "");
-    } else if (supplier === "sextoydistributing") {
-      credentials.username = String(formData.get("username") || "");
-      credentials.password = String(formData.get("password") || "");
     }
 
     const defaultShippingCode = String(formData.get("defaultShippingCode") || "");
@@ -147,45 +152,95 @@ const supplierLabels: Record<string, string> = {
   honeysplace: "Honey's Place",
   nalpac: "Nalpac",
   ecn: "East Coast News",
-  sextoydistributing: "SexToyDistributing",
+};
+
+// ─── FAQ content per supplier ───
+const supplierFAQ: Record<string, { question: string; answer: string }[]> = {
+  honeysplace: [
+    {
+      question: "Where do I find my Account Number?",
+      answer: "Log in to honeysplace.com and go to My Account. Your account number is displayed at the top of the page.",
+    },
+    {
+      question: "Where do I find my API Token?",
+      answer: "In your Honey's Place account, navigate to My Account > Data Integration > API Setup. Your API token is listed there.",
+    },
+    {
+      question: "Where do I find my Data Feed Token?",
+      answer: "In your Honey's Place account, navigate to My Account > Data Integration > Data Feeds. The token appears in the feed URL after '?token='.",
+    },
+  ],
+  eldorado: [
+    {
+      question: "Where do I find my API Key?",
+      answer: "Contact your Eldorado account rep to receive your store-specific API key. Note: the key is IP-locked to your server's IP address.",
+    },
+    {
+      question: "Where do I find my Account ID?",
+      answer: "Your Account ID is visible on your Eldorado invoices and account portal at eldorado.net.",
+    },
+    {
+      question: "Where do I find my SFTP credentials?",
+      answer: "Contact Eldorado support or your account rep to request SFTP access for catalog data feeds.",
+    },
+  ],
+  nalpac: [
+    {
+      question: "Where do I find my Nalpac credentials?",
+      answer: "Use the same username and password you use to log in to nalpac.com. If you don't have an account, apply at nalpac.com/apply.",
+    },
+  ],
+  ecn: [
+    {
+      question: "Where do I find my ECN credentials?",
+      answer: "Use the username, password, and account ID from your East Coast News wholesale account at ecnwholesale.com.",
+    },
+  ],
 };
 
 // ─── Component ───
 export default function SettingsPage() {
   const {
-    eldorado, honeysplace, nalpac, ecn, sextoydistributing,
+    eldorado, honeysplace, nalpac, ecn,
     hpShippingOptions, eldShippingOptions, nalpacShippingOptions,
     fulfillmentPriority,
+    consolidationThreshold,
   } = useLoaderData<typeof loader>();
 
   const submit = useSubmit();
   const [priority, setPriority] = useState<string[]>(fulfillmentPriority);
+  const [threshold, setThreshold] = useState(String(consolidationThreshold));
+  const dragSrc = useRef<number | null>(null);
 
-  const moveUp = (index: number) => {
-    if (index === 0) return;
-    const next = [...priority];
-    [next[index - 1], next[index]] = [next[index], next[index - 1]];
-    setPriority(next);
-  };
-  const moveDown = (index: number) => {
-    if (index === priority.length - 1) return;
-    const next = [...priority];
-    [next[index], next[index + 1]] = [next[index + 1], next[index]];
-    setPriority(next);
-  };
   const savePriority = () => {
     const formData = new FormData();
     formData.append("intent", "save_fulfillment_priority");
     formData.append("priority", JSON.stringify(priority));
+    formData.append("threshold", threshold);
     submit(formData, { method: "POST" });
   };
+
+  // Drag-and-drop handlers
+  const handleDragStart = (index: number) => { dragSrc.current = index; };
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (dragSrc.current === null || dragSrc.current === index) return;
+    const next = [...priority];
+    const [moved] = next.splice(dragSrc.current, 1);
+    next.splice(index, 0, moved);
+    dragSrc.current = index;
+    setPriority(next);
+  };
+  const handleDrop = (e: React.DragEvent) => { e.preventDefault(); dragSrc.current = null; };
 
   return (
     <Page title="Settings" subtitle="Configure your supplier connections and preferences">
       <Layout>
+        {/* Supplier Cards */}
         <Layout.Section>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "16px", alignItems: "stretch" }}>
             <SupplierSection supplier="honeysplace" title="Honey's Place" subtitle="honeysplace.com" existing={honeysplace} shippingOptions={hpShippingOptions}
+              faq={supplierFAQ.honeysplace}
               fields={[
                 { name: "account", label: "Account Number", type: "text", placeholder: "01234" },
                 { name: "apiToken", label: "API Token", type: "password", placeholder: "From My Account > Data Integration > API Setup" },
@@ -193,6 +248,7 @@ export default function SettingsPage() {
               ]}
             />
             <SupplierSection supplier="eldorado" title="Eldorado" subtitle="eldorado.net" existing={eldorado} shippingOptions={eldShippingOptions}
+              faq={supplierFAQ.eldorado}
               fields={[
                 { name: "key", label: "API Key", type: "password", placeholder: "Your store-specific key (IP-locked)" },
                 { name: "accountId", label: "Account ID", type: "text", placeholder: "e.g. 1234A" },
@@ -201,53 +257,82 @@ export default function SettingsPage() {
               ]}
             />
             <SupplierSection supplier="nalpac" title="Nalpac" subtitle="nalpac.com" existing={nalpac} shippingOptions={nalpacShippingOptions}
+              faq={supplierFAQ.nalpac}
               fields={[
                 { name: "username", label: "Username", type: "text" },
                 { name: "password", label: "Password", type: "password" },
               ]}
             />
             <SupplierSection supplier="ecn" title="East Coast News" subtitle="ecnwholesale.com" existing={ecn} shippingOptions={[]}
+              faq={supplierFAQ.ecn}
               fields={[
                 { name: "username", label: "Username", type: "text" },
                 { name: "password", label: "Password", type: "password" },
                 { name: "accountId", label: "Account ID", type: "text" },
               ]}
             />
-            <SupplierSection supplier="sextoydistributing" title="SexToyDistributing" subtitle="sextoydistributing.com" existing={sextoydistributing} shippingOptions={[]}
-              fields={[
-                { name: "username", label: "Username", type: "text" },
-                { name: "password", label: "Password", type: "password" },
-              ]}
-            />
           </div>
         </Layout.Section>
 
+        {/* Fulfillment Priority + Threshold */}
         <Layout.Section>
-          <div style={{ maxWidth: "360px" }}>
+          <div style={{ maxWidth: "400px" }}>
             <Card>
               <BlockStack gap="400">
                 <BlockStack gap="100">
                   <Text as="h2" variant="headingMd">Fulfillment Priority</Text>
                   <Text as="p" tone="subdued" variant="bodySm">
-                    When two suppliers offer the same lowest price, IntimaSync routes to the highest-ranked supplier with stock.
+                    Drag to reorder. When two suppliers share the lowest price, IntimaSync routes to the highest-ranked supplier with stock.
                   </Text>
                 </BlockStack>
                 <Divider />
+
+                {/* Draggable list */}
                 <BlockStack gap="200">
                   {priority.map((sup, i) => (
-                    <InlineStack key={sup} align="space-between" blockAlign="center">
-                      <InlineStack gap="300" blockAlign="center">
-                        <Text as="span" variant="bodySm" tone="subdued">{i + 1}.</Text>
-                        <Text as="span" fontWeight="semibold">{supplierLabels[sup] || sup}</Text>
-                      </InlineStack>
-                      <InlineStack gap="100">
-                        <Button size="slim" variant="plain" disabled={i === 0} onClick={() => moveUp(i)} accessibilityLabel="Move up">▲</Button>
-                        <Button size="slim" variant="plain" disabled={i === priority.length - 1} onClick={() => moveDown(i)} accessibilityLabel="Move down">▼</Button>
-                      </InlineStack>
-                    </InlineStack>
+                    <div
+                      key={sup}
+                      draggable
+                      onDragStart={() => handleDragStart(i)}
+                      onDragOver={(e) => handleDragOver(e, i)}
+                      onDrop={handleDrop}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "10px",
+                        padding: "8px 10px",
+                        background: "#f6f6f7",
+                        borderRadius: "8px",
+                        cursor: "grab",
+                        userSelect: "none",
+                      }}
+                    >
+                      {/* Drag handle */}
+                      <span style={{ color: "#8c9196", fontSize: "18px", lineHeight: 1, cursor: "grab" }}>⠿</span>
+                      <Text as="span" variant="bodySm" tone="subdued">{i + 1}.</Text>
+                      <Text as="span" fontWeight="semibold">{supplierLabels[sup] || sup}</Text>
+                    </div>
                   ))}
                 </BlockStack>
-                <Button variant="primary" onClick={savePriority}>Save Priority</Button>
+
+                <Divider />
+
+                {/* Consolidation threshold */}
+                <BlockStack gap="100">
+                  <TextField
+                    label="Consolidation threshold (%)"
+                    type="number"
+                    value={threshold}
+                    onChange={setThreshold}
+                    helpText="If a higher-priority supplier's price is within this % of the lowest price, route to them instead."
+                    min="0"
+                    max="100"
+                    suffix="%"
+                    autoComplete="off"
+                  />
+                </BlockStack>
+
+                <Button variant="primary" onClick={savePriority}>Save Fulfillment Settings</Button>
               </BlockStack>
             </Card>
           </div>
@@ -259,7 +344,7 @@ export default function SettingsPage() {
 
 // ─── Supplier Section (always open, flex height) ───
 function SupplierSection({
-  supplier, title, subtitle, existing, fields, shippingOptions,
+  supplier, title, subtitle, existing, fields, shippingOptions, faq,
 }: {
   supplier: string;
   title: string;
@@ -267,6 +352,7 @@ function SupplierSection({
   existing: any;
   fields: { name: string; label: string; type: string; placeholder?: string }[];
   shippingOptions: { label: string; value: string }[];
+  faq: { question: string; answer: string }[];
 }) {
   const submit = useSubmit();
   const [values, setValues] = useState<Record<string, string>>(
@@ -278,6 +364,7 @@ function SupplierSection({
   const [testResult, setTestResult] = useState<{ success: boolean; message?: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [faqOpen, setFaqOpen] = useState(false);
 
   const handleSave = () => {
     setSaving(true);
@@ -355,6 +442,31 @@ function SupplierSection({
               <Banner tone={testResult.success ? "success" : "critical"}>
                 {testResult.message}
               </Banner>
+            )}
+
+            {/* Credential FAQ */}
+            {faq && faq.length > 0 && (
+              <Box>
+                <Button
+                  variant="plain"
+                  onClick={() => setFaqOpen(!faqOpen)}
+                  ariaExpanded={faqOpen}
+                >
+                  {faqOpen ? "Hide credential help" : "Where do I find these credentials?"}
+                </Button>
+                <Collapsible open={faqOpen} id={`faq-${supplier}`} transition={{ duration: "200ms" }}>
+                  <Box paddingBlockStart="300">
+                    <BlockStack gap="300">
+                      {faq.map((item, idx) => (
+                        <BlockStack key={idx} gap="100">
+                          <Text as="p" variant="bodyMd" fontWeight="semibold">{item.question}</Text>
+                          <Text as="p" variant="bodySm" tone="subdued">{item.answer}</Text>
+                        </BlockStack>
+                      ))}
+                    </BlockStack>
+                  </Box>
+                </Collapsible>
+              </Box>
             )}
 
             <div style={{ marginTop: "auto" }}>
