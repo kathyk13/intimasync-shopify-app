@@ -41,7 +41,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
       skip: (page - 1) * perPage,
       take: perPage,
       include: {
-        lines: true,
+        lineRoutings: true,
       },
     }),
     prisma.orderRouting.count({ where: { shopId: shop.id } }),
@@ -54,13 +54,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
       shopifyOrderNumber: o.shopifyOrderNumber,
       status: o.status,
       createdAt: o.createdAt.toISOString(),
-      updatedAt: o.updatedAt.toISOString(),
-      lines: o.lines.map((l) => ({
+      lines: o.lineRoutings.map((l) => ({
         supplier: l.supplier,
-        supplierOrderId: l.supplierOrderId,
+        supplierOrderRef: l.supplierOrderRef || null,
         status: l.status,
         trackingNumber: l.trackingNumber,
-        trackingUrl: l.trackingUrl,
       })),
     })),
     total,
