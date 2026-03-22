@@ -1,11 +1,11 @@
 /**
  * IntimaSync - Products List Page
- * Spreadsheet-style view comparing supplier pricing by UPC
+ * Spreadsheet + thumbnail views, search, category filter, per-page selector
  */
 
 import { useState, useCallback } from "react";
 import { json, type LoaderFunctionArgs, type ActionFunctionArgs } from "@remix-run/node";
-import { useLoaderData, useSubmit, useFetcher } from "@remix-run/react";
+import { useLoaderData, useSubmit, useFetcher, Link, useNavigate } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -29,13 +29,13 @@ import {
   Checkbox,
   Banner,
   EmptyState,
+  SearchField,
 } from "@shopify/polaris";
-import { LockIcon, StarIcon, AlertCircleIcon } from "@shopify/polaris-icons";
+import { LockIcon, StarIcon, LayoutColumnsIcon, TableIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 
-// ─── Types ───
-
+// âââ Types âââ
 interface ProductRow {
   upc: string;
   title: string;
@@ -50,8 +50,7 @@ interface ProductRow {
   nalpac: { sku: string; cost: number; qty: number } | null;
 }
 
-// ─── Loader ───
-
+// âââ Loader âââ
 export async function loader({ request }: LoaderFunctionArgs) {
   const { session } = await authenticate.admin(request);
   const shopId = await getShopId(session.shop);
@@ -62,54 +61,90 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const search = url.searchParams.get("search") || "";
   const category = url.searchParams.get("category") || "";
   const favoritesOnly = url.searchParams.get("favorites") === "true";
-  const sortKey = url.searchParams.get("sort") || "title";
-  const sortDir = (url.searchParams.get("dir") || "asc") as "asc" | "desc";
 
-  // Get enabled suppliers
   const credentials = await prisma.supplierCredential.findMany({
     where: { shopId, enabled: true },
     select: { supplier: true },
   });
   const enabledSuppliers = credentials.map((c) => c.supplier);
 
-  // Fetch product matches with their supplier product data
+  // Build where clause
   const where: any = { shopId };
   if (favoritesOnly) where.isFavorite = true;
 
-  // Build product rows from product matches
-  const matches = await prisma.productMatch.findMany({
-    where,
-    skip: (page - 1) * perPage,
-    take: perPage,
-  });
+  // Apply search/category filter via supplier products
+  let filteredUpcs: string[] | null = null;
+  if (search || category) {
+    const spWhere: any = { shopId };
+    if (search) {
+      spWhere.OR = [
+        { title: { contains: search, mode: "insensitive" } },
+        { description: { contains: search, mode: "insensitive" } },
+        { upc: { contains: search } },
+        { brand: { contains: search, mode: "insensitive" } },
+        { supplierSku: { contains: search } },
+      ];
+    }
+    if (category) {
+      spWhere.category = { equals: category, mode: "insensitive" };
+    }
+    const matchingProducts = await prisma.supplierProduct.findMany({
+      where: spWhere,
+      select: { upc: true },
+      distinct: ["upc"],
+    });
+    filteredUpcs = matchingProducts.map((p) => p.upc).filter(Boolean) as string[];
+    where.upc = { in: filteredUpcs };
+  }
 
-  const total = await prisma.productMatch.count({ where });
+  const [matches, total] = await Promise.all([
+    prisma.productMatch.findMany({
+      where,
+      skip: (page - 1) * perPage,
+      take: perPage,
+      orderBy: { updatedAt: "desc" },
+    }),
+    prisma.productMatch.count({ where }),
+  ]);
 
   const rows: ProductRow[] = await Promise.all(
     matches.map(async (match) => {
-      // Get supplier products for each enabled supplier
-      const [eldoradoProduct, honeysplaceProduct, nalpacProduct] = await Promise.all([
-        match.eldoradoSku && enabledSuppliers.includes("eldorado")
-          ? prisma.supplierProduct.findFirst({
-              where: { shopId, supplier: "eldorado", supplierSku: match.eldoradoSku },
-            })
-          : null,
-        match.honeysplaceSku && enabledSuppliers.includes("honeysplace")
-          ? prisma.supplierProduct.findFirst({
-              where: { shopId, supplier: "honeysplace", supplierSku: match.honeysplaceSku },
-            })
-          : null,
-        match.nalpacSku && enabledSuppliers.includes("nalpac")
-          ? prisma.supplierProduct.findFirst({
-              where: { shopId, supplier: "nalpac", supplierSku: match.nalpacSku },
-            })
-          : null,
-      ]);
+      const [eldoradoProduct, honeysplaceProduct, nalpacProduct] =
+        await Promise.all([
+          match.eldoradoSku && enabledSuppliers.includes("eldorado")
+            ? prisma.supplierProduct.findFirst({
+                where: {
+                  shopId,
+                  supplier: "eldorado",
+                  supplierSku: match.eldoradoSku,
+                },
+              })
+            : null,
+          match.honeysplaceSku && enabledSuppliers.includes("honeysplace")
+            ? prisma.supplierProduct.findFirst({
+                where: {
+                  shopId,
+                  supplier: "honeysplace",
+                  supplierSku: match.honeysplaceSku,
+                },
+              })
+            : null,
+          match.nalpacSku && enabledSuppliers.includes("nalpac")
+            ? prisma.supplierProduct.findFirst({
+                where: {
+                  shopId,
+                  supplier: "nalpac",
+                  supplierSku: match.nalpacSku,
+                },
+              })
+            : null,
+        ]);
 
-      // Get title and image from any supplier
-      const anyProduct = eldoradoProduct || honeysplaceProduct || nalpacProduct;
-      const images =
-        anyProduct?.imagesJson ? JSON.parse(anyProduct.imagesJson) : [];
+      const anyProduct =
+        eldoradoProduct || honeysplaceProduct || nalpacProduct;
+      const images = anyProduct?.imagesJson
+        ? JSON.parse(anyProduct.imagesJson)
+        : [];
 
       return {
         upc: match.upc,
@@ -145,7 +180,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     })
   );
 
-  // Get all categories
+  // Categories for filter
   const categoryResults = await prisma.supplierProduct.findMany({
     where: { shopId },
     select: { category: true },
@@ -166,13 +201,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
     search,
     category,
     favoritesOnly,
-    sortKey,
-    sortDir,
   });
 }
 
-// ─── Action ───
-
+// âââ Action âââ
 export async function action({ request }: ActionFunctionArgs) {
   const { session } = await authenticate.admin(request);
   const shopId = await getShopId(session.shop);
@@ -181,7 +213,9 @@ export async function action({ request }: ActionFunctionArgs) {
 
   if (intent === "toggle_favorite") {
     const upc = String(formData.get("upc"));
-    const match = await prisma.productMatch.findFirst({ where: { shopId, upc } });
+    const match = await prisma.productMatch.findFirst({
+      where: { shopId, upc },
+    });
     if (match) {
       await prisma.productMatch.update({
         where: { id: match.id },
@@ -194,7 +228,9 @@ export async function action({ request }: ActionFunctionArgs) {
   if (intent === "lock_supplier") {
     const upc = String(formData.get("upc"));
     const supplier = String(formData.get("supplier"));
-    const match = await prisma.productMatch.findFirst({ where: { shopId, upc } });
+    const match = await prisma.productMatch.findFirst({
+      where: { shopId, upc },
+    });
     if (match) {
       await prisma.productMatch.update({
         where: { id: match.id },
@@ -207,33 +243,82 @@ export async function action({ request }: ActionFunctionArgs) {
   return json({ ok: false, error: "Unknown intent" });
 }
 
-// ─── Component ───
-
+// âââ Component âââ
 export default function ProductsPage() {
-  const { rows, total, page, perPage, enabledSuppliers, categories, favoritesOnly } =
-    useLoaderData<typeof loader>();
+  const {
+    rows,
+    total,
+    page,
+    perPage,
+    enabledSuppliers,
+    categories,
+    search: initialSearch,
+    category: initialCategory,
+  } = useLoaderData<typeof loader>();
+
   const submit = useSubmit();
   const fetcher = useFetcher();
+  const navigate = useNavigate();
 
   const [selectedUpcs, setSelectedUpcs] = useState<string[]>([]);
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<"spreadsheet" | "thumbnail">("spreadsheet");
+  const [searchValue, setSearchValue] = useState(initialSearch);
+  const [categoryValue, setCategoryValue] = useState(initialCategory);
   const [currentPerPage, setCurrentPerPage] = useState(String(perPage));
+
+  const applyFilters = (params: Record<string, string>) => {
+    const sp = new URLSearchParams({
+      page: "1",
+      perPage: currentPerPage,
+      search: searchValue,
+      category: categoryValue,
+      ...params,
+    });
+    navigate(`/app/products?${sp.toString()}`);
+  };
+
+  const handleSearch = useCallback(
+    (value: string) => {
+      setSearchValue(value);
+    },
+    []
+  );
+
+  const handleSearchSubmit = () => {
+    applyFilters({ search: searchValue, category: categoryValue });
+  };
+
+  const handleClearSearch = () => {
+    setSearchValue("");
+    setCategoryValue("");
+    applyFilters({ search: "", category: "" });
+  };
 
   const cheapestSupplier = (row: ProductRow): string | null => {
     if (row.lockedSupplier) return row.lockedSupplier;
     const options = [
-      row.eldorado?.qty && row.eldorado.qty > 0 ? { s: "eldorado", c: row.eldorado.cost } : null,
-      row.honeysplace?.qty && row.honeysplace.qty > 0 ? { s: "honeysplace", c: row.honeysplace.cost } : null,
-      row.nalpac?.qty && row.nalpac.qty > 0 ? { s: "nalpac", c: row.nalpac.cost } : null,
+      row.eldorado?.qty && row.eldorado.qty > 0
+        ? { s: "eldorado", c: row.eldorado.cost }
+        : null,
+      row.honeysplace?.qty && row.honeysplace.qty > 0
+        ? { s: "honeysplace", c: row.honeysplace.cost }
+        : null,
+      row.nalpac?.qty && row.nalpac.qty > 0
+        ? { s: "nalpac", c: row.nalpac.cost }
+        : null,
     ].filter(Boolean) as { s: string; c: number }[];
     if (options.length === 0) return null;
     return options.sort((a, b) => a.c - b.c)[0].s;
   };
 
   const noStock = (row: ProductRow): boolean => {
-    const totalQty =
-      (row.eldorado?.qty || 0) + (row.honeysplace?.qty || 0) + (row.nalpac?.qty || 0);
-    return totalQty === 0;
+    return (
+      (row.eldorado?.qty || 0) +
+        (row.honeysplace?.qty || 0) +
+        (row.nalpac?.qty || 0) ===
+      0
+    );
   };
 
   const formatCost = (
@@ -242,14 +327,18 @@ export default function ProductsPage() {
     isCheapest: boolean,
     isLocked: boolean
   ) => {
-    if (cost == null || qty == null) return <Text as="span" tone="subdued">—</Text>;
-    if (qty === 0) return <Text as="span" tone="subdued">$0.00 (OOS)</Text>;
-
-    const text = `$${cost.toFixed(2)}`;
+    if (cost == null || qty == null)
+      return <Text as="span" tone="subdued">â</Text>;
+    if (qty === 0)
+      return <Text as="span" tone="subdued">$0.00 (OOS)</Text>;
     return (
       <InlineStack gap="100" blockAlign="center">
-        <Text as="span" tone={isCheapest ? "success" : undefined} fontWeight={isCheapest ? "bold" : undefined}>
-          {text}
+        <Text
+          as="span"
+          tone={isCheapest ? "success" : undefined}
+          fontWeight={isCheapest ? "bold" : undefined}
+        >
+          ${cost.toFixed(2)}
         </Text>
         {isLocked && (
           <Tooltip content="Supplier manually locked">
@@ -259,6 +348,23 @@ export default function ProductsPage() {
       </InlineStack>
     );
   };
+
+  const headings = [
+    { title: "" },
+    { title: "Product" },
+    { title: "UPC" },
+    { title: "MSRP" },
+    ...(enabledSuppliers.includes("eldorado")
+      ? [{ title: "Eldorado $" }, { title: "Eld. Qty" }]
+      : []),
+    ...(enabledSuppliers.includes("honeysplace")
+      ? [{ title: "HP $" }, { title: "HP Qty" }]
+      : []),
+    ...(enabledSuppliers.includes("nalpac")
+      ? [{ title: "Nalpac $" }, { title: "Nalpac Qty" }]
+      : []),
+    { title: "Fulfillment" },
+  ];
 
   const rowMarkup = rows.map((row, index) => {
     const cheapest = cheapestSupplier(row);
@@ -273,25 +379,25 @@ export default function ProductsPage() {
         position={index}
         tone={outOfStock ? "critical" : undefined}
       >
-        {/* Thumbnail */}
         <IndexTable.Cell>
           <Thumbnail
-            source={row.imageUrl || "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-product-1_small.png"}
+            source={
+              row.imageUrl ||
+              "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-product-1_small.png"
+            }
             alt={row.title}
             size="small"
           />
         </IndexTable.Cell>
-
-        {/* Product Name */}
         <IndexTable.Cell>
           <BlockStack gap="100">
             <InlineStack gap="200" blockAlign="center">
-              <Text as="span" variant="bodyMd" fontWeight="semibold">
-                {row.title}
-              </Text>
-              {outOfStock && (
-                <Badge tone="critical">Out of Stock</Badge>
-              )}
+              <Link to={`/app/products/${row.upc}`}>
+                <Text as="span" variant="bodyMd" fontWeight="semibold">
+                  {row.title}
+                </Text>
+              </Link>
+              {outOfStock && <Badge tone="critical">OOS</Badge>}
               {row.shopifyProductId && (
                 <Tooltip content="Imported to Shopify">
                   <Badge tone="success">In Shopify</Badge>
@@ -305,18 +411,12 @@ export default function ProductsPage() {
             </InlineStack>
           </BlockStack>
         </IndexTable.Cell>
-
-        {/* UPC */}
         <IndexTable.Cell>
           <Text as="span" variant="bodySm" tone="subdued">{row.upc}</Text>
         </IndexTable.Cell>
-
-        {/* MSRP */}
         <IndexTable.Cell>
-          <Text as="span">{row.msrp ? `$${row.msrp.toFixed(2)}` : "—"}</Text>
+          <Text as="span">{row.msrp ? `$${row.msrp.toFixed(2)}` : "â"}</Text>
         </IndexTable.Cell>
-
-        {/* Eldorado Cost */}
         {enabledSuppliers.includes("eldorado") && (
           <IndexTable.Cell>
             {formatCost(
@@ -327,17 +427,16 @@ export default function ProductsPage() {
             )}
           </IndexTable.Cell>
         )}
-
-        {/* Eldorado Qty */}
         {enabledSuppliers.includes("eldorado") && (
           <IndexTable.Cell>
-            <Text as="span" tone={row.eldorado?.qty === 0 ? "critical" : undefined}>
-              {row.eldorado?.qty ?? "—"}
+            <Text
+              as="span"
+              tone={row.eldorado?.qty === 0 ? "critical" : undefined}
+            >
+              {row.eldorado?.qty ?? "â"}
             </Text>
           </IndexTable.Cell>
         )}
-
-        {/* Honey's Place Cost */}
         {enabledSuppliers.includes("honeysplace") && (
           <IndexTable.Cell>
             {formatCost(
@@ -348,17 +447,16 @@ export default function ProductsPage() {
             )}
           </IndexTable.Cell>
         )}
-
-        {/* Honey's Place Qty */}
         {enabledSuppliers.includes("honeysplace") && (
           <IndexTable.Cell>
-            <Text as="span" tone={row.honeysplace?.qty === 0 ? "critical" : undefined}>
-              {row.honeysplace?.qty ?? "—"}
+            <Text
+              as="span"
+              tone={row.honeysplace?.qty === 0 ? "critical" : undefined}
+            >
+              {row.honeysplace?.qty ?? "â"}
             </Text>
           </IndexTable.Cell>
         )}
-
-        {/* Nalpac Cost */}
         {enabledSuppliers.includes("nalpac") && (
           <IndexTable.Cell>
             {formatCost(
@@ -369,25 +467,28 @@ export default function ProductsPage() {
             )}
           </IndexTable.Cell>
         )}
-
-        {/* Nalpac Qty */}
         {enabledSuppliers.includes("nalpac") && (
           <IndexTable.Cell>
-            <Text as="span" tone={row.nalpac?.qty === 0 ? "critical" : undefined}>
-              {row.nalpac?.qty ?? "—"}
+            <Text
+              as="span"
+              tone={row.nalpac?.qty === 0 ? "critical" : undefined}
+            >
+              {row.nalpac?.qty ?? "â"}
             </Text>
           </IndexTable.Cell>
         )}
-
-        {/* Fulfillment Source */}
         <IndexTable.Cell>
           <Select
             label=""
             labelHidden
             options={[
               { label: "Auto (Cheapest)", value: "auto" },
-              ...(row.eldorado ? [{ label: "Eldorado", value: "eldorado" }] : []),
-              ...(row.honeysplace ? [{ label: "Honey's Place", value: "honeysplace" }] : []),
+              ...(row.eldorado
+                ? [{ label: "Eldorado", value: "eldorado" }]
+                : []),
+              ...(row.honeysplace
+                ? [{ label: "Honey's Place", value: "honeysplace" }]
+                : []),
               ...(row.nalpac ? [{ label: "Nalpac", value: "nalpac" }] : []),
             ]}
             value={row.lockedSupplier || "auto"}
@@ -404,23 +505,6 @@ export default function ProductsPage() {
     );
   });
 
-  const headings = [
-    { title: "" },
-    { title: "Product" },
-    { title: "UPC" },
-    { title: "MSRP" },
-    ...(enabledSuppliers.includes("eldorado")
-      ? [{ title: "Eldorado Cost" }, { title: "Eld. Qty" }]
-      : []),
-    ...(enabledSuppliers.includes("honeysplace")
-      ? [{ title: "HP Cost" }, { title: "HP Qty" }]
-      : []),
-    ...(enabledSuppliers.includes("nalpac")
-      ? [{ title: "Nalpac Cost" }, { title: "Nalpac Qty" }]
-      : []),
-    { title: "Fulfillment Source" },
-  ];
-
   return (
     <Page
       title="Products"
@@ -431,12 +515,6 @@ export default function ProductsPage() {
         onAction: () => setImportModalOpen(true),
       }}
       secondaryActions={[
-        {
-          content: "Export CSV",
-          onAction: () => {
-            window.location.href = "/app/products/export";
-          },
-        },
         {
           content: "Sync Now",
           onAction: () => {
@@ -456,59 +534,239 @@ export default function ProductsPage() {
               Add your supplier credentials in Settings to see pricing and inventory.
             </Banner>
           )}
-          <Card padding="0">
-            <IndexTable
-              resourceName={{ singular: "product", plural: "products" }}
-              itemCount={total}
-              selectedItemsCount={selectedUpcs.length}
-              onSelectionChange={(selectionType, isSelecting, selection) => {
-                if (selectionType === "all") {
-                  setSelectedUpcs(isSelecting ? rows.map((r) => r.upc) : []);
-                } else if (selectionType === "single" && typeof selection === "string") {
-                  setSelectedUpcs((prev) =>
-                    isSelecting ? [...prev, selection] : prev.filter((id) => id !== selection)
-                  );
-                }
-              }}
-              headings={headings}
-              loading={false}
-              bulkActions={[
-                {
-                  content: "Add to Shopify as Draft",
-                  onAction: () => setImportModalOpen(true),
-                },
-                {
-                  content: "Add to Favorites",
-                  onAction: () => {
-                    selectedUpcs.forEach((upc) => {
-                      const formData = new FormData();
-                      formData.append("intent", "toggle_favorite");
-                      formData.append("upc", upc);
-                      fetcher.submit(formData, { method: "POST" });
-                    });
-                  },
-                },
-                {
-                  content: "Download Images",
-                  onAction: () => {
-                    window.location.href = `/app/products/download-images?upcs=${selectedUpcs.join(",")}`;
-                  },
-                },
-              ]}
-            >
-              {rowMarkup}
-            </IndexTable>
+
+          {/* Toolbar */}
+          <Card>
+            <InlineStack gap="300" blockAlign="end" wrap>
+              {/* Search */}
+              <div style={{ flex: "1", minWidth: "200px" }}>
+                <TextField
+                  label="Search"
+                  labelHidden
+                  value={searchValue}
+                  onChange={handleSearch}
+                  placeholder="Search by title, UPC, brand, description..."
+                  autoComplete="off"
+                  clearButton
+                  onClearButtonClick={handleClearSearch}
+                />
+              </div>
+
+              {/* Category filter */}
+              {categories.length > 0 && (
+                <div style={{ minWidth: "180px" }}>
+                  <Select
+                    label="Category"
+                    labelHidden
+                    options={[
+                      { label: "All categories", value: "" },
+                      ...categories.map((c) => ({ label: c, value: c })),
+                    ]}
+                    value={categoryValue}
+                    onChange={(v) => {
+                      setCategoryValue(v);
+                      applyFilters({ category: v });
+                    }}
+                  />
+                </div>
+              )}
+
+              {/* Per-page */}
+              <div style={{ minWidth: "120px" }}>
+                <Select
+                  label="Per page"
+                  labelHidden
+                  options={[
+                    { label: "25 per page", value: "25" },
+                    { label: "50 per page", value: "50" },
+                    { label: "100 per page", value: "100" },
+                  ]}
+                  value={currentPerPage}
+                  onChange={(v) => {
+                    setCurrentPerPage(v);
+                    applyFilters({ perPage: v, page: "1" });
+                  }}
+                />
+              </div>
+
+              {/* Search button */}
+              <Button onClick={handleSearchSubmit}>Search</Button>
+              {(searchValue || categoryValue) && (
+                <Button variant="plain" onClick={handleClearSearch}>
+                  Clear
+                </Button>
+              )}
+
+              {/* View toggle */}
+              <ButtonGroup variant="segmented">
+                <Tooltip content="Spreadsheet view">
+                  <Button
+                    pressed={viewMode === "spreadsheet"}
+                    onClick={() => setViewMode("spreadsheet")}
+                    icon={TableIcon}
+                    accessibilityLabel="Spreadsheet view"
+                  />
+                </Tooltip>
+                <Tooltip content="Thumbnail view">
+                  <Button
+                    pressed={viewMode === "thumbnail"}
+                    onClick={() => setViewMode("thumbnail")}
+                    icon={LayoutColumnsIcon}
+                    accessibilityLabel="Thumbnail view"
+                  />
+                </Tooltip>
+              </ButtonGroup>
+            </InlineStack>
           </Card>
 
-          <div style={{ display: "flex", justifyContent: "center", marginTop: "16px" }}>
+          {/* Spreadsheet view */}
+          {viewMode === "spreadsheet" && (
+            <Card padding="0">
+              <IndexTable
+                resourceName={{ singular: "product", plural: "products" }}
+                itemCount={total}
+                selectedItemsCount={selectedUpcs.length}
+                onSelectionChange={(selectionType, isSelecting, selection) => {
+                  if (selectionType === "all") {
+                    setSelectedUpcs(isSelecting ? rows.map((r) => r.upc) : []);
+                  } else if (
+                    selectionType === "single" &&
+                    typeof selection === "string"
+                  ) {
+                    setSelectedUpcs((prev) =>
+                      isSelecting
+                        ? [...prev, selection]
+                        : prev.filter((id) => id !== selection)
+                    );
+                  }
+                }}
+                headings={headings}
+                bulkActions={[
+                  {
+                    content: "Import to Shopify",
+                    onAction: () => setImportModalOpen(true),
+                  },
+                  {
+                    content: "Add to Favorites",
+                    onAction: () => {
+                      selectedUpcs.forEach((upc) => {
+                        const formData = new FormData();
+                        formData.append("intent", "toggle_favorite");
+                        formData.append("upc", upc);
+                        fetcher.submit(formData, { method: "POST" });
+                      });
+                    },
+                  },
+                ]}
+              >
+                {rowMarkup}
+              </IndexTable>
+            </Card>
+          )}
+
+          {/* Thumbnail view */}
+          {viewMode === "thumbnail" && (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+                gap: "16px",
+                marginTop: "16px",
+              }}
+            >
+              {rows.map((row) => {
+                const cheapest = cheapestSupplier(row);
+                const cheapestCost = cheapest
+                  ? row[cheapest as keyof ProductRow] as any
+                  : null;
+                return (
+                  <Card key={row.upc}>
+                    <BlockStack gap="200">
+                      <Link to={`/app/products/${row.upc}`}>
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "center",
+                            padding: "8px",
+                          }}
+                        >
+                          <Thumbnail
+                            source={
+                              row.imageUrl ||
+                              "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-product-1_small.png"
+                            }
+                            alt={row.title}
+                            size="large"
+                          />
+                        </div>
+                      </Link>
+                      <BlockStack gap="100">
+                        <Link to={`/app/products/${row.upc}`}>
+                          <Text
+                            as="p"
+                            variant="bodySm"
+                            fontWeight="semibold"
+                            truncate
+                          >
+                            {row.title}
+                          </Text>
+                        </Link>
+                        {cheapest && cheapestCost?.cost != null && (
+                          <Text as="p" variant="bodySm" tone="success">
+                            From ${Number(cheapestCost.cost).toFixed(2)}
+                          </Text>
+                        )}
+                        {row.msrp && (
+                          <Text as="p" variant="bodySm" tone="subdued">
+                            MSRP ${row.msrp.toFixed(2)}
+                          </Text>
+                        )}
+                        {row.shopifyProductId && (
+                          <Badge tone="success" size="small">In Shopify</Badge>
+                        )}
+                        {cheapest && (
+                          <Badge size="small">
+                            {cheapest === "eldorado"
+                              ? "Eldorado"
+                              : cheapest === "honeysplace"
+                              ? "Honey's Place"
+                              : "Nalpac"}
+                          </Badge>
+                        )}
+                      </BlockStack>
+                      <Button
+                        size="slim"
+                        fullWidth
+                        onClick={() => {
+                          setSelectedUpcs([row.upc]);
+                          setImportModalOpen(true);
+                        }}
+                        disabled={!!row.shopifyProductId}
+                      >
+                        {row.shopifyProductId ? "In Shopify" : "Import"}
+                      </Button>
+                    </BlockStack>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              marginTop: "16px",
+            }}
+          >
             <Pagination
               hasPrevious={page > 1}
               onPrevious={() => {
-                submit({ page: String(page - 1), perPage: String(perPage) }, { method: "GET" });
+                applyFilters({ page: String(page - 1) });
               }}
               hasNext={page * perPage < total}
               onNext={() => {
-                submit({ page: String(page + 1), perPage: String(perPage) }, { method: "GET" });
+                applyFilters({ page: String(page + 1) });
               }}
             />
           </div>
@@ -525,8 +783,7 @@ export default function ProductsPage() {
   );
 }
 
-// ─── Import Modal ───
-
+// âââ Import Modal âââ
 function ImportModal({
   open,
   onClose,
@@ -540,18 +797,24 @@ function ImportModal({
 }) {
   const submit = useSubmit();
   const [skuValues, setSkuValues] = useState<Record<string, string>>({});
-  const [favoriteValues, setFavoriteValues] = useState<Record<string, boolean>>({});
 
   const handleImport = () => {
     const formData = new FormData();
     formData.append("intent", "import_products");
-    formData.append("products", JSON.stringify(
-      rows.map((row) => ({
-        upc: row.upc,
-        sku: skuValues[row.upc] || row.eldorado?.sku || row.honeysplace?.sku || row.nalpac?.sku || row.upc,
-        addToFavorites: favoriteValues[row.upc] !== false, // default true
-      }))
-    ));
+    formData.append(
+      "products",
+      JSON.stringify(
+        rows.map((row) => ({
+          upc: row.upc,
+          sku:
+            skuValues[row.upc] ||
+            row.eldorado?.sku ||
+            row.honeysplace?.sku ||
+            row.nalpac?.sku ||
+            row.upc,
+        }))
+      )
+    );
     submit(formData, { method: "POST", action: "/app/products/import" });
     onClose();
   };
@@ -567,34 +830,42 @@ function ImportModal({
       <Modal.Section>
         <BlockStack gap="400">
           <Text as="p" tone="subdued">
-            Products will be imported as drafts. You can review and publish them from Shopify Products.
-            Set a custom internal SKU for each product, or accept the default.
+            Products will be imported as drafts. Set an optional internal SKU for
+            each product. You can review and publish them from Shopify Products.
           </Text>
           {rows.map((row) => (
             <InlineStack key={row.upc} gap="400" blockAlign="center">
               <div style={{ width: 48, flexShrink: 0 }}>
-                <Thumbnail source={row.imageUrl || ""} alt={row.title} size="small" />
+                <Thumbnail
+                  source={row.imageUrl || ""}
+                  alt={row.title}
+                  size="small"
+                />
               </div>
               <BlockStack gap="100" inlineSize="fill">
-                <Text as="span" variant="bodySm" fontWeight="semibold">{row.title}</Text>
-                <Text as="span" variant="bodySm" tone="subdued">UPC: {row.upc}</Text>
+                <Text as="span" variant="bodySm" fontWeight="semibold">
+                  {row.title}
+                </Text>
+                <Text as="span" variant="bodySm" tone="subdued">
+                  UPC: {row.upc}
+                </Text>
               </BlockStack>
               <div style={{ width: 180 }}>
                 <TextField
-                  label="SKU"
+                  label="SKU (optional)"
                   value={
                     skuValues[row.upc] ??
-                    (row.eldorado?.sku || row.honeysplace?.sku || row.nalpac?.sku || row.upc)
+                    (row.eldorado?.sku ||
+                      row.honeysplace?.sku ||
+                      row.nalpac?.sku ||
+                      "")
                   }
-                  onChange={(v) => setSkuValues((prev) => ({ ...prev, [row.upc]: v }))}
+                  onChange={(v) =>
+                    setSkuValues((prev) => ({ ...prev, [row.upc]: v }))
+                  }
                   autoComplete="off"
                 />
               </div>
-              <Checkbox
-                label="Add to Favorites"
-                checked={favoriteValues[row.upc] !== false}
-                onChange={(v) => setFavoriteValues((prev) => ({ ...prev, [row.upc]: v }))}
-              />
             </InlineStack>
           ))}
         </BlockStack>
@@ -603,10 +874,11 @@ function ImportModal({
   );
 }
 
-// ─── Helper ───
-
+// âââ Helper âââ
 async function getShopId(shopDomain: string): Promise<string> {
-  const shop = await prisma.shop.findUnique({ where: { shopifyDomain: shopDomain } });
+  const shop = await prisma.shop.findUnique({
+    where: { shopifyDomain: shopDomain },
+  });
   if (!shop) throw new Error("Shop not found");
   return shop.id;
 }
