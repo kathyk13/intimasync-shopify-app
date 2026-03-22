@@ -8,7 +8,7 @@
 
 import prisma from "../db.server";
 import { decryptCredentials as decryptHP, checkStockBatch } from "./suppliers/honeysplace.server";
-import { checkQuantityBatch, getDiscounts } from "./suppliers/eldorado.server";
+import { checkQuantityBatch, getDiscounts, downloadProductFeed } from "./suppliers/eldorado.server";
 import { checkInventory } from "./suppliers/nalpac.server";
 import { updateDefaultSupplier } from "./order-routing.server";
 
@@ -273,8 +273,8 @@ export async function syncProductCatalog(
     let products: any[] = [];
 
     if (supplier === "honeysplace") {
-      const { fetchProductFeed } = await import("./suppliers/honeysplace.server");
-      const feedUrl = creds.feedUrl || `https://www.honeysplace.com/df/${creds.feedToken}/json`;
+      const { fetchProductFeed, buildFeedUrl } = await import("./suppliers/honeysplace.server");
+      const feedUrl = buildFeedUrl(creds);
       products = await fetchProductFeed(feedUrl);
     } else if (supplier === "nalpac") {
       const { fetchProducts } = await import("./suppliers/nalpac.server");
@@ -289,7 +289,18 @@ export async function syncProductCatalog(
         await new Promise((r) => setTimeout(r, 500));
       }
     }
-    // Eldorado is handled via SFTP - see syncEldoradoCatalogFromSftp()
+    } else if (supplier === "eldorado") {
+      const eldoProducts = await downloadProductFeed(creds);
+      products = eldoProducts.map((p) => ({
+        sku: p.model,
+        title: p.name,
+        upc: p.upc || null,
+        cost: p.price,
+        inventoryQty: p.quantity,
+        description: p.description || null,
+        msrp: p.msrp || null,
+        images: p.images || [],
+      }));
 
     for (const product of products) {
       try {
