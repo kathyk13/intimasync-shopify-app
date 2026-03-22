@@ -1,13 +1,13 @@
 /**
  * Eldorado CIPP (Customer Integration Partner Portal) Integration
- * Revised 5/2025 â SFTP-based, replacing legacy REST API at eldoradopartner.com
+ * Revised 5/2025 - SFTP-based, replacing legacy REST API at eldoradopartner.com
  *
  * SFTP server: 52.27.75.88
  * Folders:
- *   /feeds/                  - product data files (daily, ~9pm Mountain)
- *   /inventory/              - inventory + pricing files (hourly)
+ *   /feeds/                 - product data files (daily, ~9pm Mountain)
+ *   /inventory/             - inventory + pricing files (hourly)
  *   /shipping_confirmations/ - shipment confirmations (every 2h, rolling 7 days)
- *   /uploads/                - drop order XML files here (one file per order)
+ *   /uploads/               - drop order XML files here (one file per order)
  */
 
 import { NodeSSH } from "node-ssh";
@@ -23,7 +23,7 @@ export interface EldoradoCredentials {
   sftpPassword: string;     // SFTP password
   sftpHost?: string;        // Defaults to 52.27.75.88
   inventoryGroup?: string;  // Discount group code for Inventory_#group files (e.g. "cga0a")
-  key?: string;             // Legacy field â no longer used in CIPP
+  key?: string;             // Legacy field - no longer used in CIPP
 }
 
 export interface EldoradoProduct {
@@ -444,7 +444,7 @@ export async function getDiscounts(
 // âââ Shipping Codes (updated for CIPP May 2025) âââââââââââââââââââââââââââââââ
 
 export const SHIPPING_CODES = [
-  { code: "B2CBR",  label: "Best Rate (Cheapest â M01, M02, FHD, UGR)" },
+  { code: "B2CBR",  label: "Best Rate (Cheapest - M01, M02, FHD, UGR)" },
   { code: "B2CBRI", label: "Best Rate International" },
   { code: "BR1D",   label: "Best Rate 1 Day" },
   { code: "BR2D",   label: "Best Rate 2 Day" },
@@ -458,7 +458,7 @@ export const SHIPPING_CODES = [
   { code: "FICP",   label: "FedEx International Connect Plus" },
   { code: "FIER",   label: "FedEx International Economy" },
   { code: "FIPR",   label: "FedEx International Priority" },
-  { code: "FHD",    label: "FedEx Ground â USA / Canada / Mexico" },
+  { code: "FHD",    label: "FedEx Ground - USA / Canada / Mexico" },
   { code: "FOR",    label: "FedEx One Rate (2-day guarantee)" },
   { code: "M01",    label: "USPS Ground Advantage (3-7 days)" },
   { code: "M02",    label: "USPS Priority Mail (2-3 days)" },
