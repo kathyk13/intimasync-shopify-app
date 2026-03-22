@@ -233,17 +233,20 @@ function SupplierSection({
 
   const handleTest = async () => {
     setTesting(true);
-    const formData = new FormData();
-    formData.append("intent", "test_credentials");
-    formData.append("supplier", supplier);
-    // Use fetch to get the response
-    const response = await fetch(window.location.href, {
-      method: "POST",
-      body: formData,
-    });
-    const data = await response.json();
-    setTestResult({ success: data.valid, message: data.valid ? "Connection successful!" : data.error });
-    setTesting(false);
+    setTestResult(null);
+    try {
+      const formData = new FormData();
+      formData.append("intent", "test_credentials");
+      formData.append("supplier", supplier);
+      const url = window.location.href.split('?')[0] + '?_data=routes%2Fapp.settings';
+      const response = await fetch(url, { method: "POST", body: formData });
+      const data = await response.json();
+      setTestResult({ success: data.valid, message: data.valid ? "Connection successful!" : (data.error || "Test failed") });
+    } catch (err) {
+      setTestResult({ success: false, message: "Test failed: " + String(err) });
+    } finally {
+      setTesting(false);
+    }
   };
 
   return (
