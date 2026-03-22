@@ -34,7 +34,7 @@ import { LockIcon, StarIcon, LayoutColumns3Icon, DataTableIcon } from "@shopify/
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 
-// âââ Types âââ
+// ─── Types ───
 interface ProductRow {
   upc: string;
   title: string;
@@ -49,7 +49,7 @@ interface ProductRow {
   nalpac: { sku: string; cost: number; qty: number } | null;
 }
 
-// âââ Loader âââ
+// ─── Loader ───
 export async function loader({ request }: LoaderFunctionArgs) {
   const { session } = await authenticate.admin(request);
   const shopId = await getShopId(session.shop);
@@ -203,7 +203,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   });
 }
 
-// âââ Action âââ
+// ─── Action ───
 export async function action({ request }: ActionFunctionArgs) {
   const { session } = await authenticate.admin(request);
   const shopId = await getShopId(session.shop);
@@ -242,7 +242,7 @@ export async function action({ request }: ActionFunctionArgs) {
   return json({ ok: false, error: "Unknown intent" });
 }
 
-// âââ Component âââ
+// ─── Component ───
 export default function ProductsPage() {
   const {
     rows,
@@ -327,7 +327,7 @@ export default function ProductsPage() {
     isLocked: boolean
   ) => {
     if (cost == null || qty == null)
-      return <Text as="span" tone="subdued">â</Text>;
+      return <Text as="span" tone="subdued">—</Text>;
     if (qty === 0)
       return <Text as="span" tone="subdued">$0.00 (OOS)</Text>;
     return (
@@ -414,7 +414,7 @@ export default function ProductsPage() {
           <Text as="span" variant="bodySm" tone="subdued">{row.upc}</Text>
         </IndexTable.Cell>
         <IndexTable.Cell>
-          <Text as="span">{row.msrp ? `$${row.msrp.toFixed(2)}` : "â"}</Text>
+          <Text as="span">{row.msrp ? `$${row.msrp.toFixed(2)}` : "—"}</Text>
         </IndexTable.Cell>
         {enabledSuppliers.includes("eldorado") && (
           <IndexTable.Cell>
@@ -432,7 +432,7 @@ export default function ProductsPage() {
               as="span"
               tone={row.eldorado?.qty === 0 ? "critical" : undefined}
             >
-              {row.eldorado?.qty ?? "â"}
+              {row.eldorado?.qty ?? "—"}
             </Text>
           </IndexTable.Cell>
         )}
@@ -452,7 +452,7 @@ export default function ProductsPage() {
               as="span"
               tone={row.honeysplace?.qty === 0 ? "critical" : undefined}
             >
-              {row.honeysplace?.qty ?? "â"}
+              {row.honeysplace?.qty ?? "—"}
             </Text>
           </IndexTable.Cell>
         )}
@@ -472,7 +472,7 @@ export default function ProductsPage() {
               as="span"
               tone={row.nalpac?.qty === 0 ? "critical" : undefined}
             >
-              {row.nalpac?.qty ?? "â"}
+              {row.nalpac?.qty ?? "—"}
             </Text>
           </IndexTable.Cell>
         )}
@@ -782,7 +782,7 @@ export default function ProductsPage() {
   );
 }
 
-// âââ Import Modal âââ
+// ─── Import Modal ───
 function ImportModal({
   open,
   onClose,
@@ -873,7 +873,7 @@ function ImportModal({
   );
 }
 
-// âââ Helper âââ
+// ─── Helper ───
 async function getShopId(shopDomain: string): Promise<string> {
   const shop = await prisma.shop.findUnique({
     where: { shopifyDomain: shopDomain },
