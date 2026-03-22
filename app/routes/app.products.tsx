@@ -29,7 +29,6 @@ import {
   Checkbox,
   Banner,
   EmptyState,
-  SearchField,
 } from "@shopify/polaris";
 import { LockIcon, StarIcon, LayoutColumnsIcon, TableIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
