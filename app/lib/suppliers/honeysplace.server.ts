@@ -9,7 +9,7 @@ import type { SupplierCredential } from "@prisma/client";
 
 // ─── Types ───
 
-export interface HoneysPlaceCredentials 
+export interface HoneysPlaceCredentials {
   account: string;
   apiToken: string; // "password" in their API
 }
