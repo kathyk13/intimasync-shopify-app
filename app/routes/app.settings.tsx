@@ -1,6 +1,7 @@
 /**
  * IntimaSync - Settings Page
- * Supplier credentials, shipping methods, sync schedule
+ * Supplier credentials, shipping methods, fulfillment priority
+ * Layout: 3-column grid on desktop, stacked on mobile
  */
 
 import { useState } from "react";
@@ -23,18 +24,19 @@ import {
   Collapsible,
   Icon,
 } from "@shopify/polaris";
-import { ChevronDownIcon, ChevronUpIcon, CheckCircleIcon, AlertCircleIcon } from "@shopify/polaris-icons";
+import { ChevronDownIcon, ChevronUpIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { SHIPPING_CODES as HP_SHIPPING } from "../lib/suppliers/honeysplace.server";
 import { SHIPPING_CODES as ELD_SHIPPING } from "../lib/suppliers/eldorado.server";
 import { SHIPPING_METHODS as NALPAC_SHIPPING } from "../lib/suppliers/nalpac.server";
 
-// ─── Loader ───
-
+// âââ Loader âââ
 export async function loader({ request }: LoaderFunctionArgs) {
   const { session } = await authenticate.admin(request);
-  const shop = await prisma.shop.findUnique({ where: { shopifyDomain: session.shop } });
+  const shop = await prisma.shop.findUnique({
+    where: { shopifyDomain: session.shop },
+  });
   if (!shop) throw new Error("Shop not found");
 
   const credentials = await prisma.supplierCredential.findMany({
@@ -44,8 +46,21 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const credMap: Record<string, any> = {};
   credentials.forEach((c) => {
     const parsed = JSON.parse(c.credentialsEncrypted);
-    credMap[c.supplier] = { ...parsed, enabled: c.enabled, defaultShippingCode: c.defaultShippingCode };
+    credMap[c.supplier] = {
+      ...parsed,
+      enabled: c.enabled,
+      defaultShippingCode: c.defaultShippingCode,
+    };
   });
+
+  // Fulfillment priority order stored as JSON string in shop settings
+  const priorityRaw = (shop as any).fulfillmentPriority || '["honeysplace","eldorado","nalpac"]';
+  let fulfillmentPriority: string[];
+  try {
+    fulfillmentPriority = JSON.parse(priorityRaw);
+  } catch {
+    fulfillmentPriority = ["honeysplace", "eldorado", "nalpac"];
+  }
 
   return json({
     eldorado: credMap.eldorado || null,
@@ -54,23 +69,33 @@ export async function loader({ request }: LoaderFunctionArgs) {
     hpShippingOptions: HP_SHIPPING.map((s) => ({ label: s.label, value: s.code })),
     eldShippingOptions: ELD_SHIPPING.map((s) => ({ label: s.label, value: s.code })),
     nalpacShippingOptions: NALPAC_SHIPPING.map((s) => ({ label: s.label, value: s.code })),
+    fulfillmentPriority,
   });
 }
 
-// ─── Action ───
-
+// âââ Action âââ
 export async function action({ request }: ActionFunctionArgs) {
   const { session } = await authenticate.admin(request);
-  const shop = await prisma.shop.findUnique({ where: { shopifyDomain: session.shop } });
+  const shop = await prisma.shop.findUnique({
+    where: { shopifyDomain: session.shop },
+  });
   if (!shop) return json({ error: "Shop not found" }, { status: 404 });
 
   const formData = await request.formData();
-  const supplier = String(formData.get("supplier"));
+  const supplier = String(formData.get("supplier") || "");
   const intent = String(formData.get("intent"));
+
+  if (intent === "save_fulfillment_priority") {
+    const priority = String(formData.get("priority"));
+    await prisma.shop.update({
+      where: { id: shop.id },
+      data: { fulfillmentPriority: priority } as any,
+    });
+    return json({ success: true, message: "Fulfillment priority saved." });
+  }
 
   if (intent === "save_credentials") {
     const credentials: Record<string, string> = {};
-
     if (supplier === "eldorado") {
       credentials.key = String(formData.get("key") || "");
       credentials.accountId = String(formData.get("accountId") || "");
@@ -103,7 +128,6 @@ export async function action({ request }: ActionFunctionArgs) {
         enabled,
       },
     });
-
     return json({ success: true, message: `${supplier} credentials saved.` });
   }
 
@@ -133,18 +157,63 @@ export async function action({ request }: ActionFunctionArgs) {
   return json({ success: false, error: "Unknown intent" });
 }
 
-// ─── Component ───
-
+// âââ Component âââ
 export default function SettingsPage() {
-  const { eldorado, honeysplace, nalpac, hpShippingOptions, eldShippingOptions, nalpacShippingOptions } =
-    useLoaderData<typeof loader>();
+  const {
+    eldorado,
+    honeysplace,
+    nalpac,
+    hpShippingOptions,
+    eldShippingOptions,
+    nalpacShippingOptions,
+    fulfillmentPriority,
+  } = useLoaderData<typeof loader>();
+
   const submit = useSubmit();
+  const [priority, setPriority] = useState<string[]>(fulfillmentPriority);
+
+  const supplierLabels: Record<string, string> = {
+    eldorado: "Eldorado",
+    honeysplace: "Honey's Place",
+    nalpac: "Nalpac",
+  };
+
+  const moveUp = (index: number) => {
+    if (index === 0) return;
+    const next = [...priority];
+    [next[index - 1], next[index]] = [next[index], next[index - 1]];
+    setPriority(next);
+  };
+
+  const moveDown = (index: number) => {
+    if (index === priority.length - 1) return;
+    const next = [...priority];
+    [next[index], next[index + 1]] = [next[index + 1], next[index]];
+    setPriority(next);
+  };
+
+  const savePriority = () => {
+    const formData = new FormData();
+    formData.append("intent", "save_fulfillment_priority");
+    formData.append("priority", JSON.stringify(priority));
+    submit(formData, { method: "POST" });
+  };
 
   return (
-    <Page title="Settings" subtitle="Configure your supplier connections and preferences">
+    <Page
+      title="Settings"
+      subtitle="Configure your supplier connections and preferences"
+    >
       <Layout>
+        {/* 3-column supplier cards */}
         <Layout.Section>
-          <BlockStack gap="600">
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+              gap: "16px",
+            }}
+          >
             <SupplierSection
               supplier="honeysplace"
               title="Honey's Place"
@@ -152,30 +221,61 @@ export default function SettingsPage() {
               existing={honeysplace}
               shippingOptions={hpShippingOptions}
               fields={[
-                { name: "account", label: "Account Number", type: "text", placeholder: "01234" },
-                { name: "apiToken", label: "API Token (Password)", type: "password", placeholder: "From My Account > Data Integration > API Setup" },
-                { name: "feedToken", label: "Data Feed Token", type: "text", placeholder: "From the data feed URL (e.g. 6NljialIvkj90IL73pAu88s7)" },
+                {
+                  name: "account",
+                  label: "Account Number",
+                  type: "text",
+                  placeholder: "01234",
+                },
+                {
+                  name: "apiToken",
+                  label: "API Token",
+                  type: "password",
+                  placeholder: "From My Account > Data Integration > API Setup",
+                },
+                {
+                  name: "feedToken",
+                  label: "Data Feed Token",
+                  type: "text",
+                  placeholder: "From the data feed URL",
+                },
               ]}
             />
-
             <SupplierSection
               supplier="eldorado"
               title="Eldorado"
-              subtitle="eldorado.net / eldoradopartner.com"
+              subtitle="eldorado.net"
               existing={eldorado}
               shippingOptions={eldShippingOptions}
               fields={[
-                { name: "key", label: "API Key", type: "password", placeholder: "Your store-specific key from Eldorado (IP-locked)" },
-                { name: "accountId", label: "Account ID", type: "text", placeholder: "e.g. 1234A" },
-                { name: "sftpUsername", label: "SFTP Username", type: "text", placeholder: "Your FTP username from Eldorado" },
-                { name: "sftpPassword", label: "SFTP Password", type: "password", placeholder: "Your FTP password" },
+                {
+                  name: "key",
+                  label: "API Key",
+                  type: "password",
+                  placeholder: "Your store-specific key (IP-locked)",
+                },
+                {
+                  name: "accountId",
+                  label: "Account ID",
+                  type: "text",
+                  placeholder: "e.g. 1234A",
+                },
+                {
+                  name: "sftpUsername",
+                  label: "SDTP USerName",
+                  type: "text",
+                },
+                {
+                  name: "sftpPassword",
+                  label: "SFTP Password",
+                  type: "password",
+                },
               ]}
             />
-
             <SupplierSection
               supplier="nalpac"
               title="Nalpac"
-              subtitle="nalpac.com / api2.nalpac.com"
+              subtitle="nalpac.com"
               existing={nalpac}
               shippingOptions={nalpacShippingOptions}
               fields={[
@@ -183,15 +283,66 @@ export default function SettingsPage() {
                 { name: "password", label: "Password", type: "password" },
               ]}
             />
-          </BlockStack>
+          </div>
+        </Layout.Section>
+
+        {/* Fulfillment Priority */}
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="400">
+              <BlockStack gap="100">
+                <Text as="h2" variant="headingMd">Fulfillment Priority (Tie-Breaking)</Text>
+                <Text as="p" tone="subdued" variant="bodySm">
+                  When two suppliers offer the same lowest price, IntimaSync
+                  routes the order to the highest-ranked supplier that has the
+                  item in stock. Drag or use the arrows to reorder.
+                </Text>
+              </BlockStack>
+              <Divider />
+              <BlockStack gap="200">
+                {priority.map((sup, i) => (
+                  <InlineStack key={sup} align="space-between" blockAlign="center">
+                    <InlineStack gap="300" blockAlign="center">
+                      <Text as="span" variant="bodySm" tone="subdued">
+                        {i + 1}.
+                      </Text>
+                      <Text as="span" fontWeight="semibold">
+                        {supplierLabels[sup] || sup}
+                      </Text>
+                    </InlineStack>
+                    <InlineStack gap="100">
+                      <Button
+                        size="slim"
+                        variant="plain"
+                        icon={ChevronUpIcon}
+                        disabled={i === 0}
+                        onClick={() => moveUp(i)}
+                        accessibilityLabel="Move up"
+                      />
+                      <Button
+                        size="slim"
+                        variant="plain"
+                        icon={ChevronDownIcon}
+                        disabled={i === priority.length - 1}
+                        onClick={() => moveDown(i)}
+                        accessibilityLabel="Move down"
+                      />
+                    </InlineStack>
+                  </InlineStack>
+                ))}
+              </BlockStack>
+              <Button variant="primary" onClick={savePriority}>
+                Save Priority
+              </Button>
+            </BlockStack>
+          </Card>
         </Layout.Section>
       </Layout>
     </Page>
   );
 }
 
-// ─── Supplier Settings Section Component ───
-
+// âââ Supplier Settings Section Component âââ
 function SupplierSection({
   supplier,
   title,
@@ -214,8 +365,13 @@ function SupplierSection({
       ? Object.fromEntries(fields.map((f) => [f.name, existing[f.name] || ""]))
       : Object.fromEntries(fields.map((f) => [f.name, ""]))
   );
-  const [shippingCode, setShippingCode] = useState(existing?.defaultShippingCode || "");
-  const [testResult, setTestResult] = useState<{ success: boolean; message?: string } | null>(null);
+  const [shippingCode, setShippingCode] = useState(
+    existing?.defaultShippingCode || ""
+  );
+  const [testResult, setTestResult] = useState<{
+    success: boolean;
+    message?: string;
+  } | null>(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
 
@@ -238,10 +394,17 @@ function SupplierSection({
       const formData = new FormData();
       formData.append("intent", "test_credentials");
       formData.append("supplier", supplier);
-      const url = window.location.href.split('?')[0] + '?_data=routes%2Fapp.settings';
+      const url =
+        window.location.href.split("?")[0] +
+        "?_data=routes%2Fapp.settings";
       const response = await fetch(url, { method: "POST", body: formData });
       const data = await response.json();
-      setTestResult({ success: data.valid, message: data.valid ? "Connection successful!" : (data.error || "Test failed") });
+      setTestResult({
+        success: data.valid,
+        message: data.valid
+          ? "Connection successful!"
+          : data.error || "Test failed",
+      });
     } catch (err) {
       setTestResult({ success: false, message: "Test failed: " + String(err) });
     } finally {
@@ -256,10 +419,15 @@ function SupplierSection({
           <BlockStack gap="100">
             <InlineStack gap="200" blockAlign="center">
               <Text as="h2" variant="headingMd">{title}</Text>
-              {existing?.enabled && <Badge tone="success">Connected</Badge>}
-              {!existing && <Badge tone="attention">Not configured</Badge>}
+              {existing?.enabled ? (
+                <Badge tone="success">Connected</Badge>
+              ) : (
+                <Badge tone="attention">Not configured</Badge>
+              )}
             </InlineStack>
-            <Text as="p" tone="subdued" variant="bodySm">{subtitle}</Text>
+            <Text as="p" tone="subdued" variant="bodySm">
+              {subtitle}
+            </Text>
           </BlockStack>
           <Button
             variant="plain"
@@ -281,24 +449,27 @@ function SupplierSection({
                   type={field.type as any}
                   value={values[field.name] || ""}
                   placeholder={field.placeholder}
-                  onChange={(v) => setValues((prev) => ({ ...prev, [field.name]: v }))}
+                  onChange={(v) =>
+                    setValues((prev) => ({ ...prev, [field.name]: v }))
+                  }
                   autoComplete="off"
                 />
               ))}
               <Select
                 label="Default Shipping Method"
-                options={[{ label: "Select shipping method...", value: "" }, ...shippingOptions]}
+                options={[
+                  { label: "Select shipping method...", value: "" },
+                  ...shippingOptions,
+                ]}
                 value={shippingCode}
                 onChange={setShippingCode}
               />
             </FormLayout>
-
             {testResult && (
               <Banner tone={testResult.success ? "success" : "critical"}>
                 {testResult.message}
               </Banner>
             )}
-
             <InlineStack gap="200">
               <Button variant="primary" onClick={handleSave} loading={saving}>
                 Save Credentials
