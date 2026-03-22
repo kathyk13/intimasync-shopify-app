@@ -9,7 +9,7 @@ import type { SupplierCredential } from "@prisma/client";
 
 // ─── Types ───
 
-export interface HoneysPlaceCredentials {
+export interface HoneysPlaceCredentials 
   account: string;
   apiToken: string; // "password" in their API
 }
@@ -120,7 +120,7 @@ export async function checkStock(
   );
 
   const response = await fetch(BASE_URL, {
-    method: "GET",
+    method: "POST",
     headers: { "Content-Type": "application/xml" },
     body: xml,
   });
@@ -234,7 +234,7 @@ export async function checkOrderStatus(
   );
 
   const response = await fetch(BASE_URL, {
-    method: "GET",
+    method: "POST",
     headers: { "Content-Type": "application/xml" },
     body: xml,
   });
@@ -303,7 +303,7 @@ export async function validateCredentials(
       `<stockcheck><sku>TEST-VALIDATION</sku></stockcheck>`
     );
     const response = await fetch(BASE_URL, {
-      method: "GET",
+      method: "POST",
       headers: { "Content-Type": "application/xml" },
       body: xml,
     });
