@@ -30,7 +30,7 @@ import {
   Banner,
   EmptyState,
 } from "@shopify/polaris";
-import { LockIcon, StarIcon, LayoutColumnsIcon, TableIcon } from "@shopify/polaris-icons";
+import { LockIcon, StarIcon, LayoutColumns3Icon, DataTableIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 
@@ -602,7 +602,7 @@ export default function ProductsPage() {
                   <Button
                     pressed={viewMode === "spreadsheet"}
                     onClick={() => setViewMode("spreadsheet")}
-                    icon={TableIcon}
+                    icon={DataTableIcon}
                     accessibilityLabel="Spreadsheet view"
                   />
                 </Tooltip>
@@ -610,7 +610,7 @@ export default function ProductsPage() {
                   <Button
                     pressed={viewMode === "thumbnail"}
                     onClick={() => setViewMode("thumbnail")}
-                    icon={LayoutColumnsIcon}
+                    icon={LayoutColumns3Icon}
                     accessibilityLabel="Thumbnail view"
                   />
                 </Tooltip>
