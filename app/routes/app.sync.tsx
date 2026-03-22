@@ -108,6 +108,12 @@ export default function SyncPage() {
                 >
                   Sync Nalpac Catalog
                 </Button>
+                <Button
+                  loading={isRunning}
+                  onClick={() => triggerSync("sync_catalog", "eldorado")}
+                >
+                  Sync Eldorado Catalog
+                </Button>
               </InlineStack>
             </BlockStack>
           </Card>
