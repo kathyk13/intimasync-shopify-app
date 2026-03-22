@@ -414,6 +414,33 @@ export async function downloadProductFeed(
   }
 }
 
+// âââ Check Quantity Batch âââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// Convenience wrapper used by inventory-sync.server.ts to check many models
+// at once without making N separate SFTP connections.
+
+export async function checkQuantityBatch(
+  credentials: EldoradoCredentials,
+  models: string[]
+): Promise<Map<string, number>> {
+  const inventory = await getInventory(credentials);
+  const result = new Map<string, number>();
+  for (const model of models) {
+    result.set(model, inventory.get(model)?.quantity ?? 0);
+  }
+  return result;
+}
+
+// âââ Get Discounts ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// In the CIPP system all pricing is embedded in the inventory CSV already.
+// This returns an empty map so inventory-sync.server.ts applies no extra
+// discount on top of the cost pulled from the CSV.
+
+export async function getDiscounts(
+  _credentials: EldoradoCredentials
+): Promise<Map<string, number>> {
+  return new Map<string, number>();
+}
+
 // âââ Shipping Codes (updated for CIPP May 2025) âââââââââââââââââââââââââââââââ
 
 export const SHIPPING_CODES = [
