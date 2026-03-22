@@ -154,6 +154,7 @@ model OrderRouting {
   status            String   @default("pending") // pending | routed | fulfilled | error
   createdAt         DateTime @default(now())
   fulfilledAt       DateTime?
+  updatedAt         DateTime  @updatedAt
 
   shop        Shop               @relation(fields: [shopId], references: [id], onDelete: Cascade)
   lineRoutings OrderLineRouting[]
@@ -170,6 +171,7 @@ model OrderLineRouting {
   qty              Int
   supplierOrderRef String?  // reference number returned by supplier
   trackingNumber   String?
+  trackingUrl      String?
   shippedAt        DateTime?
   status           String   @default("pending") // pending | submitted | shipped | delivered
 
