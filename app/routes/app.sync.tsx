@@ -14,49 +14,34 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const shop = await prisma.shop.findUnique({ where: { shopifyDomain: session.shop } });
   if (!shop) throw new Error("Shop not found");
 
-  const logs = await prisma.syncLog.findMany({
-    where: { shopId: shop.id },
-    orderBy: { startedAt: "desc" },
-    take: 20,
-  });
+  try {
+    const logs = await prisma.syncLog.findMany({
+      where: { shopId: shop.id },
+      orderBy: { startedAt: "desc" },
+      take: 20,
+    });
 
-  return json({
-    logs: logs.map((l) => ({
-      supplier: l.supplier,
-      syncType: l.syncType,
-      status: l.status,
-      startedAt: l.startedAt.toISOString(),
-      completedAt: l.completedAt?.toISOString() || null,
-      recordsProcessed: l.recordsProcessed,
-      recordsUpdated: l.recordsUpdated,
-    })),
-  });
-}
-
-export async function action({ request }: ActionFunctionArgs) {
-  const { session } = await authenticate.admin(request);
-  const shop = await prisma.shop.findUnique({ where: { shopifyDomain: session.shop } });
-  if (!shop) return json({ error: "Shop not found" }, { status: 404 });
-
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") || "sync_inventory");
-  const supplier = formData.get("supplier") as "honeysplace" | "eldorado" | "nalpac" | null;
-
-  if (intent === "sync_catalog" && supplier) {
-    const result = await syncProductCatalog(shop.id, supplier);
-    return json({ success: true, ...result });
+    return json({
+      logs: logs.map((l) => ({
+        supplier: l.supplier,
+        syncType: l.syncType,
+        status: l.status,
+        startedAt: l.startedAt.toISOString(),
+        completedAt: l.completedAt?.toISOString() || null,
+        recordsProcessed: l.recordsProcessed,
+        recordsUpdated: l.recordsUpdated,
+        errorMessage: l.errorMessage || null,
+      })),
+      dbError: false,
+    });
+  } catch (err) {
+    console.error("Sync loader error:", err);
+    return json({ logs: [], dbError: true });
   }
-
-  if (intent === "sync_inventory") {
-    const result = await runInventorySync(shop.id);
-    return json({ success: true, ...result });
-  }
-
-  return json({ error: "Unknown intent" });
 }
 
 export default function SyncPage() {
-  const { logs } = useLoaderData<typeof loader>();
+  const { logs, dbError } = useLoaderData<typeof loader>();
   const fetcher = useFetcher();
   const isRunning = fetcher.state === "submitting";
 
@@ -67,7 +52,17 @@ export default function SyncPage() {
     fetcher.submit(fd, { method: "POST" });
   };
 
-  return (
+  if (dbError) {
+    return (
+      <Page title="Sync History">
+        <Banner tone="warning" title="Sync data unavailable">
+          <p>Sync history could not be loaded. This may be a temporary issue — please reload the page.</p>
+        </Banner>
+      </Page>
+    );
+  }
+
+    return (
     <Page title="Sync" subtitle="Manage product catalog and inventory synchronization">
       <Layout>
         {fetcher.data && (
