@@ -26,7 +26,7 @@ import {
   TextField,
   Banner,
 } from "@shopify/polaris";
-import { LockIcon, StarIcon, LayoutColumnsIcon, ListBulletedIcon } from "@shopify/polaris-icons";
+import { LockIcon, StarIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 
