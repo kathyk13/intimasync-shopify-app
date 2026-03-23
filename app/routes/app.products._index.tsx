@@ -76,7 +76,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
         { title: { contains: search, mode: "insensitive" } },
         { description: { contains: search, mode: "insensitive" } },
         { upc: { contains: search } },
-        { brand: { contains: search, mode: "insensitive" } },
+        { manufacturer: { contains: search, mode: "insensitive" } },
         { supplierSku: { contains: search } },
       ];
     }
