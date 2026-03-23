@@ -30,7 +30,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
         completedAt: l.completedAt?.toISOString() || null,
         recordsProcessed: l.recordsProcessed,
         recordsUpdated: l.recordsUpdated,
-        errorMessage: l.errorMessage || null,
+        errorsJson: l.errorsJson || null,
       })),
       dbError: false,
     });
