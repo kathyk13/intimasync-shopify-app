@@ -19,6 +19,7 @@ import {
   EmptyState,
   Tooltip,
   Pagination,
+  Banner,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -31,6 +32,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   });
   if (!shop) throw new Error("Shop not found");
 
+  try {
   const url = new URL(request.url);
   const page = parseInt(url.searchParams.get("page") || "1");
   const perPage = 50;
@@ -78,7 +80,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
     })
   );
 
-  return json({ rows, total, page, perPage });
+    return json({ rows, total, page, perPage, dbError: false });
+  } catch (err) {
+    console.error("Favorites loader error:", err);
+    return json({ rows: [], total: 0, page: 1, perPage: 50, dbError: true });
+  }
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -114,10 +120,20 @@ const supplierLabel: Record<string, string> = {
 };
 
 export default function FavoritesPage() {
-  const { rows, total, page, perPage } = useLoaderData<typeof loader>();
+  const { rows, total, page, perPage, dbError } = useLoaderData<typeof loader>();
   const submit = useSubmit();
 
   if (rows.length === 0) {
+    if (dbError) {
+    return (
+      <Page title="Favorites">
+        <Banner tone="warning" title="Could not load favorites">
+          <p>Favorite products could not be loaded. Please reload the page.</p>
+        </Banner>
+      </Page>
+    );
+  }
+
     return (
       <Page title="Favorites">
         <EmptyState
