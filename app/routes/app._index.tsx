@@ -16,6 +16,7 @@ import {
   Button,
   Divider,
   Icon,
+  Banner,
 } from "@shopify/polaris";
 import { CheckCircleIcon, AlertCircleIcon, XCircleIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
@@ -26,11 +27,23 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const shop = await prisma.shop.findUnique({ where: { shopifyDomain: session.shop } });
   if (!shop) throw new Error("Shop not found");
 
-  const [linkedCount, supplierProducts, supplierCreds] = await Promise.all([
-    prisma.productMatch.count({ where: { shopId: shop.id } }),
-    prisma.supplierProduct.count({ where: { shopId: shop.id } }),
-    prisma.supplierCredential.findMany({ where: { shopId: shop.id } }),
-  ]);
+  let linkedCount = 0;
+  let supplierProducts = 0;
+  let supplierCreds: Array<{ supplier: string; enabled: boolean }> = [];
+  let dbError = false;
+  try {
+    const dbResult = await Promise.all([
+      prisma.productMatch.count({ where: { shopId: shop.id } }),
+      prisma.supplierProduct.count({ where: { shopId: shop.id } }),
+      prisma.supplierCredential.findMany({ where: { shopId: shop.id } }),
+    ]);
+    linkedCount = dbResult[0];
+    supplierProducts = dbResult[1];
+    supplierCreds = dbResult[2];
+  } catch (err) {
+    console.error("Dashboard loader error:", err);
+    dbError = true;
+  }
 
   let shopifyProductCount = 0;
   let pendingOrders = 0;
@@ -48,7 +61,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const suppliers: Record<string, boolean> = {};
   supplierCreds.forEach((c) => { suppliers[c.supplier] = c.enabled; });
 
-  return json({ shopifyProductCount, linkedCount, supplierProducts, pendingOrders, suppliers });
+  return json({ shopifyProductCount, linkedCount, supplierProducts, pendingOrders, suppliers, dbError });
 }
 
 const SUPPLIER_NAMES: Record<string, string> = {
@@ -61,7 +74,7 @@ const SUPPLIER_NAMES: Record<string, string> = {
 const ALL_SUPPLIERS = ["honeysplace", "eldorado", "nalpac", "ecn", "sextoydistributing"];
 
 export default function Dashboard() {
-  const { shopifyProductCount, linkedCount, supplierProducts, pendingOrders, suppliers } =
+  const { shopifyProductCount, linkedCount, supplierProducts, pendingOrders, suppliers, dbError } =
     useLoaderData<typeof loader>();
 
   const unmatchedCount = Math.max(0, shopifyProductCount - linkedCount);
@@ -69,7 +82,12 @@ export default function Dashboard() {
 
   return (
     <Page title="Dashboard" subtitle="IntimaSync supplier sync overview">
-      <Layout>
+      {dbError && (
+        <Banner tone="warning" title="Dashboard data unavailable">
+          <p>Could not load stats from the database. This usually means the app database tables haven’t been initialized yet. Please run <code>prisma db push</code> and reload.</p>
+        </Banner>
+      )}
+            <Layout>
         <Layout.Section>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "16px" }}>
             {[
