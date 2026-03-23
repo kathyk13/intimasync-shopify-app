@@ -41,7 +41,8 @@ model Shop {
   trialStartedAt  DateTime @default(now())
   installedAt     DateTime @default(now())
   updatedAt       DateTime @updatedAt
-  fulfillmentPriority String?
+  fulfillmentPriority    String?
+  consolidationThreshold Float?   // % threshold for multi-supplier consolidation
 
   supplierCredentials SupplierCredential[]
   supplierProducts    SupplierProduct[]
