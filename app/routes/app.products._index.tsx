@@ -26,7 +26,7 @@ import {
   TextField,
   Banner,
 } from "@shopify/polaris";
-import { LockIcon, StarIcon, LayoutColumnsIcon, TableIcon } from "@shopify/polaris-icons";
+import { LockIcon, StarIcon, LayoutColumnsIcon, ListBulletedIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 
@@ -538,7 +538,7 @@ export default function ProductsIndexPage() {
                   <Button
                     pressed={viewMode === "spreadsheet"}
                     onClick={() => setViewMode("spreadsheet")}
-                    icon={TableIcon}
+                    icon={ListBulletedIcon}
                     accessibilityLabel="Spreadsheet view"
                   />
                 </Tooltip>
