@@ -58,7 +58,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       msrp: sp.msrp,
       qty: sp.inventoryQty,
       category: sp.category,
-      brand: sp.brand,
+      manufacturer: sp.manufacturer,
       images: sp.imagesJson ? JSON.parse(sp.imagesJson) : [],
     };
   }
@@ -204,10 +204,10 @@ export default function ProductDetailPage() {
             <BlockStack gap="300">
               <Text as="h2" variant="headingMd">Product Details</Text>
               <Divider />
-              {canonical?.brand && (
+              {canonical?.manufacturer && (
                 <InlineStack align="space-between">
                   <Text as="span" tone="subdued">Brand</Text>
-                  <Text as="span">{canonical.brand}</Text>
+                  <Text as="span">{canonical.manufacturer}</Text>
                 </InlineStack>
               )}
               {canonical?.category && (
