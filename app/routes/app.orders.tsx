@@ -18,6 +18,7 @@ import {
   Button,
   Pagination,
   Select,
+  Banner,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -34,37 +35,43 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const page = parseInt(url.searchParams.get("page") || "1");
   const perPage = 25;
 
-  const [orders, total] = await Promise.all([
-    prisma.orderRouting.findMany({
-      where: { shopId: shop.id },
-      orderBy: { createdAt: "desc" },
-      skip: (page - 1) * perPage,
-      take: perPage,
-      include: {
-        lineRoutings: true,
-      },
-    }),
-    prisma.orderRouting.count({ where: { shopId: shop.id } }),
-  ]);
+  try {
+    const [orders, total] = await Promise.all([
+      prisma.orderRouting.findMany({
+        where: { shopId: shop.id },
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * perPage,
+        take: perPage,
+        include: {
+          lineRoutings: true,
+        },
+      }),
+      prisma.orderRouting.count({ where: { shopId: shop.id } }),
+    ]);
 
-  return json({
-    orders: orders.map((o) => ({
-      id: o.id,
-      shopifyOrderId: o.shopifyOrderId,
-      shopifyOrderNumber: o.shopifyOrderNumber,
-      status: o.status,
-      createdAt: o.createdAt.toISOString(),
-      lines: o.lineRoutings.map((l) => ({
-        supplier: l.supplier,
-        supplierOrderRef: l.supplierOrderRef || null,
-        status: l.status,
-        trackingNumber: l.trackingNumber,
+    return json({
+      orders: orders.map((o) => ({
+        id: o.id,
+        shopifyOrderId: o.shopifyOrderId,
+        shopifyOrderNumber: o.shopifyOrderNumber,
+        status: o.status,
+        createdAt: o.createdAt.toISOString(),
+        lines: o.lineRoutings.map((l) => ({
+          supplier: l.supplier,
+          supplierOrderRef: l.supplierOrderRef || null,
+          status: l.status,
+          trackingNumber: l.trackingNumber,
+        })),
       })),
-    })),
-    total,
-    page,
-    perPage,
-  });
+      total,
+      page,
+      perPage,
+      dbError: false,
+    });
+  } catch (err) {
+    console.error("Orders loader error:", err);
+    return json({ orders: [], total: 0, page, perPage, dbError: true });
+  }
 }
 
 function statusTone(status: string): "success" | "attention" | "critical" | "info" | undefined {
@@ -78,7 +85,17 @@ function statusTone(status: string): "success" | "attention" | "critical" | "inf
 }
 
 export default function OrdersPage() {
-  const { orders, total, page, perPage } = useLoaderData<typeof loader>();
+  const { orders, total, page, perPage, dbError } = useLoaderData<typeof loader>();
+
+  if (dbError) {
+    return (
+      <Page title="Orders">
+        <Banner tone="warning" title="Orders unavailable">
+          <p>Order data could not be loaded. This usually means the database tables haven't been initialized yet. Run <code>prisma db push</code> to set up the schema, then reload.</p>
+        </Banner>
+      </Page>
+    );
+  }
 
   if (orders.length === 0) {
     return (
