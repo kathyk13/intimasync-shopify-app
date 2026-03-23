@@ -534,22 +534,8 @@ export default function ProductsIndexPage() {
               )}
 
               <ButtonGroup variant="segmented">
-                <Tooltip content="Spreadsheet view">
-                  <Button
-                    pressed={viewMode === "spreadsheet"}
-                    onClick={() => setViewMode("spreadsheet")}
-                    icon={ListBulletedIcon}
-                    accessibilityLabel="Spreadsheet view"
-                  />
-                </Tooltip>
-                <Tooltip content="Thumbnail view">
-                  <Button
-                    pressed={viewMode === "thumbnail"}
-                    onClick={() => setViewMode("thumbnail")}
-                    icon={LayoutColumnsIcon}
-                    accessibilityLabel="Thumbnail view"
-                  />
-                </Tooltip>
+                <Button pressed={viewMode === "spreadsheet"} onClick={() => setViewMode("spreadsheet")}>Table</Button>
+                <Button pressed={viewMode === "thumbnail"} onClick={() => setViewMode("thumbnail")}>Grid</Button>
               </ButtonGroup>
             </InlineStack>
           </Card>
