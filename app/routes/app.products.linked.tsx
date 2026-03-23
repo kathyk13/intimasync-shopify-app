@@ -34,6 +34,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   });
   if (!shop) throw new Error("Shop not found");
 
+  try {
   const url = new URL(request.url);
   const page = parseInt(url.searchParams.get("page") || "1");
   const perPage = 50;
@@ -153,15 +154,20 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   const paginated = products.slice((page - 1) * perPage, page * perPage);
 
-  return json({
-    products: paginated,
-    total: products.length,
-    page,
-    perPage,
-    linkedCount: products.filter((p) => p.matchStatus === "linked").length,
-    potentialCount: products.filter((p) => p.matchStatus === "potential").length,
-    unmatchedCount: products.filter((p) => p.matchStatus === "unmatched").length,
-  });
+    return json({
+      products: paginated,
+      total: products.length,
+      page,
+      perPage,
+      linkedCount: products.filter((p) => p.matchStatus === "linked").length,
+      potentialCount: products.filter((p) => p.matchStatus === "potential").length,
+      unmatchedCount: products.filter((p) => p.matchStatus === "unmatched").length,
+      dbError: false,
+    });
+  } catch (err) {
+    console.error("Linked loader error:", err);
+    return json({ products: [], total: 0, page: 1, perPage: 50, linkedCount: 0, potentialCount: 0, unmatchedCount: 0, dbError: true });
+  }
 }
 
 // âââ Action âââ
@@ -201,7 +207,7 @@ const supplierLabel: Record<string, string> = {
 
 // âââ Component âââ
 export default function LinkedProductsPage() {
-  const { products, total, page, perPage, linkedCount, potentialCount, unmatchedCount } =
+  const { products, total, page, perPage, linkedCount, potentialCount, unmatchedCount, dbError } =
     useLoaderData<typeof loader>();
   const fetcher = useFetcher();
 
@@ -302,7 +308,17 @@ export default function LinkedProductsPage() {
     </IndexTable.Row>
   ));
 
-  return (
+  if (dbError) {
+    return (
+      <Page title="Linked Products">
+        <Banner tone="warning" title="Could not load linked products">
+          <p>Product linking data could not be loaded. Please reload the page.</p>
+        </Banner>
+      </Page>
+    );
+  }
+
+    return (
     <Page
       title="Linked Products"
       subtitle="Your Shopify products and their IntimaSync supplier connections"
