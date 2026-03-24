@@ -13,7 +13,7 @@ export async function action({ request }: ActionFunctionArgs) {
   // Verify secret key
   const authHeader = request.headers.get("Authorization") || "";
   const token = authHeader.replace("Bearer ", "");
-  if (token !== process.env.SHOPIFY_API_SECRET) {
+  if (token !== process.env.SHOPIFY_API_KEY) {
     return json({ error: "Unauthorized" }, { status: 401 });
   }
 
