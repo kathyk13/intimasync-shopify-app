@@ -30,7 +30,7 @@ import { LockIcon, StarIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 
-// ─── Types ───
+// âââ Types âââ
 interface ProductRow {
   upc: string;
   title: string;
@@ -45,7 +45,7 @@ interface ProductRow {
   nalpac: { sku: string; cost: number; qty: number } | null;
 }
 
-// ─── Loader ───
+// âââ Loader âââ
 export async function loader({ request }: LoaderFunctionArgs) {
   const { session } = await authenticate.admin(request);
   const shopId = await getShopId(session.shop);
@@ -174,7 +174,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   });
 }
 
-// ─── Action ───
+// âââ Action âââ
 export async function action({ request }: ActionFunctionArgs) {
   const { session } = await authenticate.admin(request);
   const shopId = await getShopId(session.shop);
@@ -209,7 +209,7 @@ export async function action({ request }: ActionFunctionArgs) {
   return json({ ok: false, error: "Unknown intent" });
 }
 
-// ─── Component ───
+// âââ Component âââ
 export default function ProductsIndexPage() {
   const {
     rows,
@@ -306,7 +306,6 @@ export default function ProductsIndexPage() {
   const headings = [
     { title: "" },
     { title: "Product" },
-    { title: "UPC" },
     { title: "MSRP" },
     ...(enabledSuppliers.includes("eldorado") ? [{ title: "Eldorado $" }, { title: "Eld. Qty" }] : []),
     ...(enabledSuppliers.includes("honeysplace") ? [{ title: "HP $" }, { title: "HP Qty" }] : []),
@@ -361,10 +360,8 @@ export default function ProductsIndexPage() {
                 </Tooltip>
               )}
             </InlineStack>
+            <Text as="span" variant="bodySm" tone="subdued">{row.upc}</Text>
           </BlockStack>
-        </IndexTable.Cell>
-        <IndexTable.Cell>
-          <Text as="span" variant="bodySm" tone="subdued">{row.upc}</Text>
         </IndexTable.Cell>
         <IndexTable.Cell>
           <Text as="span">{row.msrp ? `$${row.msrp.toFixed(2)}` : "—"}</Text>
@@ -670,7 +667,7 @@ export default function ProductsIndexPage() {
   );
 }
 
-// ─── Import Modal ───
+// âââ Import Modal âââ
 function ImportModal({
   open,
   onClose,
@@ -740,7 +737,7 @@ function ImportModal({
   );
 }
 
-// ─── Helper ───
+// âââ Helper âââ
 async function getShopId(shopDomain: string): Promise<string> {
   const shop = await prisma.shop.findUnique({ where: { shopifyDomain: shopDomain } });
   if (!shop) throw new Error("Shop not found");
