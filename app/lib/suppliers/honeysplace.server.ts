@@ -7,7 +7,7 @@
 
 import type { SupplierCredential } from "@prisma/client";
 
-// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Types Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+// ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Types ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
 export interface HoneysPlaceCredentials {
   account: string;
   apiToken: string; // "password" in their API
@@ -63,7 +63,7 @@ export interface HoneysPlaceStockItem {
   qty: number;
 }
 
-// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Credential helpers Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+// ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Credential helpers ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
 export function decryptCredentials(encrypted: string | Record<string, unknown>): HoneysPlaceCredentials {
   // Handle both string (from API) and already-parsed object (from Prisma Json field)
   return (typeof encrypted === "string" ? JSON.parse(encrypted) : encrypted) as HoneysPlaceCredentials;
@@ -74,7 +74,7 @@ export function encryptCredentials(creds: HoneysPlaceCredentials): string {
   return JSON.stringify(creds);
 }
 
-// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ XML helpers Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+// ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ XML helpers ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
 function buildXmlEnvelope(
   account: string,
   password: string,
@@ -98,7 +98,7 @@ function parseXmlResponse(xml: string): Record<string, string> {
   return result;
 }
 
-// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ API Calls Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+// ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ API Calls ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
 const BASE_URL = "https://www.honeysplace.com/ws/";
 
 /**
@@ -270,7 +270,7 @@ export function buildFeedUrl(credentials: HoneysPlaceCredentials): string {
   }
   const token = credentials.feedToken || credentials.apiToken;
   if (!token) throw new Error("Honey's Place: no feed token or API token in credentials");
-  return `https://www.honeysplace.com/DataFeed/json?account=${encodeURIComponent(credentials.account)}&token=${encodeURIComponent(token)}`;
+  return `https://www.honeysplace.com/df/${encodeURIComponent(token)}/json`;
 }
 
 /**
@@ -430,7 +430,7 @@ export async function validateCredentials(
   }
 }
 
-// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Shipping Codes (Appendix A) Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+// ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Shipping Codes (Appendix A) ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
 export const SHIPPING_CODES = [
   { code: "F001", label: "FedEx First Overnight" },
   { code: "F002", label: "FedEx Priority Overnight" },
