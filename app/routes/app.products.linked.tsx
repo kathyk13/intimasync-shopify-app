@@ -26,7 +26,7 @@ import { CheckCircleIcon, AlertCircleIcon, XCircleIcon } from "@shopify/polaris-
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 
-// âââ Loader âââ
+// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Loader Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 export async function loader({ request }: LoaderFunctionArgs) {
   const { admin, session } = await authenticate.admin(request);
   const shop = await prisma.shop.findUnique({
@@ -170,7 +170,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
 }
 
-// âââ Action âââ
+// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Action Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 export async function action({ request }: ActionFunctionArgs) {
   const { session } = await authenticate.admin(request);
   const shop = await prisma.shop.findUnique({
@@ -205,7 +205,7 @@ const supplierLabel: Record<string, string> = {
   nalpac: "Nalpac",
 };
 
-// âââ Component âââ
+// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Component Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 export default function LinkedProductsPage() {
   const { products, total, page, perPage, linkedCount, potentialCount, unmatchedCount, dbError } =
     useLoaderData<typeof loader>();
@@ -273,7 +273,7 @@ export default function LinkedProductsPage() {
         {p.lowestCost != null ? (
           <Text as="span">${Number(p.lowestCost).toFixed(2)}</Text>
         ) : (
-          <Text as="span" tone="subdued">â</Text>
+          <Text as="span" tone="subdued">—</Text>
         )}
       </IndexTable.Cell>
 
@@ -281,12 +281,12 @@ export default function LinkedProductsPage() {
         {p.defaultSupplier ? (
           <Badge>{supplierLabel[p.defaultSupplier] || p.defaultSupplier}</Badge>
         ) : (
-          <Text as="span" tone="subdued">â</Text>
+          <Text as="span" tone="subdued">—</Text>
         )}
       </IndexTable.Cell>
 
       <IndexTable.Cell>
-        <Text as="span">{p.qtySold > 0 ? p.qtySold : "â"}</Text>
+        <Text as="span">{p.qtySold > 0 ? p.qtySold : "—"}</Text>
       </IndexTable.Cell>
 
       <IndexTable.Cell>
