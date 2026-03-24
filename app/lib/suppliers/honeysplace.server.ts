@@ -7,11 +7,12 @@
 
 import type { SupplierCredential } from "@prisma/client";
 
-// âââ Types âââ
+// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Types Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 export interface HoneysPlaceCredentials {
   account: string;
   apiToken: string; // "password" in their API
   feedToken: string; // data feed token
+  feedUrl?: string;  // optional: full feed URL pasted from HP portal (overrides constructed URL)
 }
 
 export interface HoneysPlaceProduct {
@@ -62,7 +63,7 @@ export interface HoneysPlaceStockItem {
   qty: number;
 }
 
-// âââ Credential helpers âââ
+// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Credential helpers Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 export function decryptCredentials(encrypted: string | Record<string, unknown>): HoneysPlaceCredentials {
   // Handle both string (from API) and already-parsed object (from Prisma Json field)
   return (typeof encrypted === "string" ? JSON.parse(encrypted) : encrypted) as HoneysPlaceCredentials;
@@ -73,7 +74,7 @@ export function encryptCredentials(creds: HoneysPlaceCredentials): string {
   return JSON.stringify(creds);
 }
 
-// âââ XML helpers âââ
+// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ XML helpers Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 function buildXmlEnvelope(
   account: string,
   password: string,
@@ -97,7 +98,7 @@ function parseXmlResponse(xml: string): Record<string, string> {
   return result;
 }
 
-// âââ API Calls âââ
+// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ API Calls Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 const BASE_URL = "https://www.honeysplace.com/ws/";
 
 /**
@@ -263,6 +264,10 @@ export async function checkOrderStatus(
  * HP feed format: https://www.honeysplace.com/DataFeed/json?account=ACCOUNT&token=FEEDTOKEN
  */
 export function buildFeedUrl(credentials: HoneysPlaceCredentials): string {
+  // Use the full URL if pasted directly from HP portal (My Account > Data Integration > Data Feeds)
+  if (credentials.feedUrl && credentials.feedUrl.startsWith("http")) {
+    return credentials.feedUrl;
+  }
   const token = credentials.feedToken || credentials.apiToken;
   if (!token) throw new Error("Honey's Place: no feed token or API token in credentials");
   return `https://www.honeysplace.com/DataFeed/json?account=${encodeURIComponent(credentials.account)}&token=${encodeURIComponent(token)}`;
@@ -425,7 +430,7 @@ export async function validateCredentials(
   }
 }
 
-// âââ Shipping Codes (Appendix A) âââ
+// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Shipping Codes (Appendix A) Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 export const SHIPPING_CODES = [
   { code: "F001", label: "FedEx First Overnight" },
   { code: "F002", label: "FedEx Priority Overnight" },
