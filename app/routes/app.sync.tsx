@@ -1,17 +1,30 @@
 /**
  * IntimaSync - Manual Sync Trigger
  */
-
 import { json, type ActionFunctionArgs, type LoaderFunctionArgs } from "@remix-run/node";
 import { useLoaderData, useSubmit, useFetcher } from "@remix-run/react";
-import { Page, Layout, Card, BlockStack, Text, Button, Banner, DataTable, Badge, InlineStack } from "@shopify/polaris";
+import {
+  Page,
+  Layout,
+  Card,
+  BlockStack,
+  Text,
+  Button,
+  Banner,
+  DataTable,
+  Badge,
+  InlineStack,
+} from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import { runInventorySync, syncProductCatalog } from "../lib/inventory-sync.server";
 import prisma from "../db.server";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const { session } = await authenticate.admin(request);
-  const shop = await prisma.shop.findUnique({ where: { shopifyDomain: session.shop } });
+
+  const shop = await prisma.shop.findUnique({
+    where: { shopifyDomain: session.shop },
+  });
   if (!shop) throw new Error("Shop not found");
 
   try {
@@ -40,6 +53,53 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
 }
 
+// FIX: Added action export so POST requests from the Products page "Sync Now"
+// button (and the sync page itself) are handled correctly instead of 405.
+export async function action({ request }: ActionFunctionArgs) {
+  const { session } = await authenticate.admin(request);
+
+  const shop = await prisma.shop.findUnique({
+    where: { shopifyDomain: session.shop },
+  });
+  if (!shop) throw new Error("Shop not found");
+
+  const formData = await request.formData();
+  const intent = String(formData.get("intent") || "");
+  const supplier = formData.get("supplier") as string | null;
+
+  try {
+    // "sync" is sent by the Products page "Sync Now" button
+    if (intent === "sync_inventory" || intent === "sync") {
+      const result = await runInventorySync(shop.id);
+      return json({
+        success: result.success,
+        updated: result.updated,
+        error: result.errors[0] || null,
+      });
+    }
+
+    if (intent === "sync_catalog" && supplier) {
+      if (!["honeysplace", "eldorado", "nalpac"].includes(supplier)) {
+        return json({ success: false, error: "Unknown supplier" });
+      }
+      const result = await syncProductCatalog(
+        shop.id,
+        supplier as "honeysplace" | "eldorado" | "nalpac"
+      );
+      return json({
+        success: result.errors.length === 0,
+        updated: result.added + result.updated,
+        added: result.added,
+        error: result.errors[0] || null,
+      });
+    }
+
+    return json({ success: false, error: "Unknown intent" });
+  } catch (err) {
+    return json({ success: false, error: String(err) });
+  }
+}
+
 export default function SyncPage() {
   const { logs, dbError } = useLoaderData<typeof loader>();
   const fetcher = useFetcher();
@@ -56,20 +116,29 @@ export default function SyncPage() {
     return (
       <Page title="Sync History">
         <Banner tone="warning" title="Sync data unavailable">
-          <p>Sync history could not be loaded. This may be a temporary issue — please reload the page.</p>
+          <p>Sync history could not be loaded. This may be a temporary issue â please reload the page.</p>
         </Banner>
       </Page>
     );
   }
 
-    return (
-    <Page title="Sync" subtitle="Manage product catalog and inventory synchronization">
+  return (
+    <Page
+      title="Sync"
+      subtitle="Manage product catalog and inventory synchronization"
+    >
       <Layout>
         {fetcher.data && (
           <Layout.Section>
-            <Banner tone={(fetcher.data as any).success ? "success" : "critical"}>
+            <Banner
+              tone={(fetcher.data as any).success ? "success" : "critical"}
+            >
               {(fetcher.data as any).success
-                ? `Sync complete. Updated ${(fetcher.data as any).updated || 0} records.`
+                ? `Sync complete. Updated ${(fetcher.data as any).updated || 0} records.${
+                    (fetcher.data as any).added != null
+                      ? ` (${(fetcher.data as any).added} new)`
+                      : ""
+                  }`
                 : `Sync error: ${(fetcher.data as any).error}`}
             </Banner>
           </Layout.Section>
@@ -78,10 +147,13 @@ export default function SyncPage() {
         <Layout.Section>
           <Card>
             <BlockStack gap="400">
-              <Text as="h2" variant="headingMd">Sync Actions</Text>
+              <Text as="h2" variant="headingMd">
+                Sync Actions
+              </Text>
               <Text as="p" tone="subdued">
-                Sync inventory updates quantities and prices for products already in your Shopify store.
-                Sync catalog fetches new product listings from suppliers (takes longer).
+                Sync inventory updates quantities and prices for products already
+                in your Shopify store. Sync catalog fetches new product listings
+                from suppliers (takes longer).
               </Text>
               <InlineStack gap="300" wrap>
                 <Button
@@ -95,7 +167,7 @@ export default function SyncPage() {
                   loading={isRunning}
                   onClick={() => triggerSync("sync_catalog", "honeysplace")}
                 >
-                  Sync Honey's Place Catalog
+                  Sync Honey&apos;s Place Catalog
                 </Button>
                 <Button
                   loading={isRunning}
@@ -117,14 +189,38 @@ export default function SyncPage() {
         <Layout.Section>
           <Card>
             <BlockStack gap="400">
-              <Text as="h2" variant="headingMd">Sync History</Text>
+              <Text as="h2" variant="headingMd">
+                Sync History
+              </Text>
               <DataTable
-                columnContentTypes={["text", "text", "text", "text", "numeric", "numeric"]}
-                headings={["Supplier", "Type", "Status", "Started", "Processed", "Updated"]}
+                columnContentTypes={[
+                  "text",
+                  "text",
+                  "text",
+                  "text",
+                  "numeric",
+                  "numeric",
+                ]}
+                headings={[
+                  "Supplier",
+                  "Type",
+                  "Status",
+                  "Started",
+                  "Processed",
+                  "Updated",
+                ]}
                 rows={logs.map((l) => [
                   l.supplier,
                   l.syncType,
-                  <Badge tone={l.status === "success" ? "success" : l.status === "failed" ? "critical" : "attention"}>
+                  <Badge
+                    tone={
+                      l.status === "success"
+                        ? "success"
+                        : l.status === "failed"
+                        ? "critical"
+                        : "attention"
+                    }
+                  >
                     {l.status}
                   </Badge>,
                   new Date(l.startedAt).toLocaleString(),
