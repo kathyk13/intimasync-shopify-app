@@ -167,16 +167,16 @@ const supplierFAQ: Record<string, { question: string; answer: string }[]> = {
   ],
   eldorado: [
     {
-      question: "Where do I find my API Key?",
-      answer: "Contact your Eldorado account rep to receive your store-specific API key. Note: the key is IP-locked to your server's IP address.",
-    },
-    {
       question: "Where do I find my Account ID?",
-      answer: "Your Account ID is visible on your Eldorado invoices and account portal at eldorado.net.",
+      answer: "Your Account ID is in Eldorado welcome emails and invoices. It may be labeled 'Customer ID' (numeric, e.g. 8960) or 'BP#' (e.g. 49679PF). Use the numeric Customer ID here.",
     },
     {
       question: "Where do I find my SFTP credentials?",
-      answer: "Contact Eldorado support or your account rep to request SFTP access for catalog data feeds.",
+      answer: "Eldorado emails SFTP credentials when your CIPP dropship account is set up. Look for an email with 'Host: sftp://52.27.75.88' and your username/password. Contact your account rep if you have not received them.",
+    },
+    {
+      question: "What goes in Remote Feed Path?",
+      answer: "Leave blank to use the default '/feeds/product_feed.tsv'. Note: Eldorado says SFTP folders can take up to 24 hours to generate after initial account setup.",
     },
   ],
   nalpac: [
@@ -303,11 +303,11 @@ export default function SettingsPage() {
                 {/* Consolidation threshold */}
                 <BlockStack gap="100">
                   <TextField
-                    label="Consolidation threshold (%)"
+                    label="Order Consolidation Threshold (%)"
                     type="number"
                     value={threshold}
                     onChange={setThreshold}
-                    helpText="If a higher-priority supplier's price is within this % of the lowest price, route to them instead."
+                    helpText="When one supplier can fulfill at least this % of a customer's line items, route as many items as possible to that supplier to reduce split shipments. Items only available elsewhere are still split-shipped."
                     min="0"
                     max="100"
                     suffix="%"
@@ -337,7 +337,7 @@ function SupplierSection({
   shippingOptions: { label: string; value: string }[];
   faq: { question: string; answer: string }[];
 }) {
-  const submit = useSubmit();
+  const saveFetcher = useFetcher();
   const testFetcher = useFetcher();
 
   const [values, setValues] = useState<Record<string, string>>(
@@ -347,10 +347,22 @@ function SupplierSection({
   );
   const [shippingCode, setShippingCode] = useState(existing?.defaultShippingCode || "");
   const [testResult, setTestResult] = useState<{ success: boolean; message?: string } | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [saveResult, setSaveResult] = useState<{ success: boolean; message: string } | null>(null);
   const [faqOpen, setFaqOpen] = useState(false);
 
+  const saving = saveFetcher.state !== "idle";
   const testing = testFetcher.state !== "idle";
+
+  // React to save result
+  useEffect(() => {
+    if (saveFetcher.state === "idle" && saveFetcher.data) {
+      const data = saveFetcher.data as any;
+      setSaveResult({
+        success: !!data.success,
+        message: data.success ? "Credentials saved." : data.error || "Save failed.",
+      });
+    }
+  }, [saveFetcher.state, saveFetcher.data]);
 
   // React to test result from the server
   useEffect(() => {
@@ -364,14 +376,14 @@ function SupplierSection({
   }, [testFetcher.state, testFetcher.data]);
 
   const handleSave = () => {
-    setSaving(true);
+    setSaveResult(null);
     const formData = new FormData();
     formData.append("intent", "save_credentials");
     formData.append("supplier", supplier);
     formData.append("enabled", "true");
     formData.append("defaultShippingCode", shippingCode);
     fields.forEach((f) => formData.append(f.name, values[f.name] || ""));
-    submit(formData, { method: "POST" });
+    saveFetcher.submit(formData, { method: "POST" });
   };
 
   const handleTest = () => {
@@ -423,6 +435,12 @@ function SupplierSection({
                 />
               )}
             </FormLayout>
+
+            {saveResult && (
+              <Banner tone={saveResult.success ? "success" : "critical"}>
+                {saveResult.message}
+              </Banner>
+            )}
 
             {testResult && (
               <Banner tone={testResult.success ? "success" : "critical"}>

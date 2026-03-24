@@ -55,6 +55,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const perPage = parseInt(url.searchParams.get("perPage") || "50");
   const search = url.searchParams.get("search") || "";
   const category = url.searchParams.get("category") || "";
+  const supplierFilter = url.searchParams.get("supplier") || "";
+  const inStockOnly = url.searchParams.get("inStock") === "true";
   const favoritesOnly = url.searchParams.get("favorites") === "true";
 
   const credentials = await prisma.supplierCredential.findMany({
@@ -67,9 +69,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const where: any = { shopId };
   if (favoritesOnly) where.isFavorite = true;
 
-  // Apply search/category filter via supplier products
+  // Apply search/category/supplier/inStock filter via supplier products
   let filteredUpcs: string[] | null = null;
-  if (search || category) {
+  if (search || category || supplierFilter || inStockOnly) {
     const spWhere: any = { shopId };
     if (search) {
       spWhere.OR = [
@@ -82,6 +84,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
     }
     if (category) {
       spWhere.category = { equals: category, mode: "insensitive" };
+    }
+    if (supplierFilter) {
+      spWhere.supplier = supplierFilter;
+    }
+    if (inStockOnly) {
+      spWhere.inventoryQty = { gt: 0 };
     }
     const matchingProducts = await prisma.supplierProduct.findMany({
       where: spWhere,
@@ -138,13 +146,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
         lockedSupplier: match.lockedSupplier,
         defaultSupplier: match.defaultSupplier,
         eldorado: eldoradoProduct
-          ? { sku: eldoradoProduct.supplierSku, cost: eldoradoProduct.cost || 0, qty: eldoradoProduct.inventoryQty }
+          ? { sku: eldoradoProduct.supplierSku, cost: eldoradoProduct.cost ?? null, qty: eldoradoProduct.inventoryQty }
           : null,
         honeysplace: honeysplaceProduct
-          ? { sku: honeysplaceProduct.supplierSku, cost: honeysplaceProduct.cost || 0, qty: honeysplaceProduct.inventoryQty }
+          ? { sku: honeysplaceProduct.supplierSku, cost: honeysplaceProduct.cost ?? null, qty: honeysplaceProduct.inventoryQty }
           : null,
         nalpac: nalpacProduct
-          ? { sku: nalpacProduct.supplierSku, cost: nalpacProduct.cost || 0, qty: nalpacProduct.inventoryQty }
+          ? { sku: nalpacProduct.supplierSku, cost: nalpacProduct.cost ?? null, qty: nalpacProduct.inventoryQty }
           : null,
       };
     })
@@ -161,6 +169,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
     .filter(Boolean)
     .sort() as string[];
 
+  // Check for any currently-running sync
+  const runningSync = await prisma.syncLog.findFirst({
+    where: { shopId, status: "running" },
+    orderBy: { startedAt: "desc" },
+  });
+
   return json({
     rows,
     total,
@@ -170,7 +184,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
     categories,
     search,
     category,
+    supplierFilter,
+    inStockOnly,
     favoritesOnly,
+    hasRunningSync: !!runningSync,
+    runningSupplier: runningSync?.supplier ?? null,
   });
 }
 
@@ -220,6 +238,10 @@ export default function ProductsIndexPage() {
     categories,
     search: initialSearch,
     category: initialCategory,
+    supplierFilter: initialSupplierFilter,
+    inStockOnly: initialInStockOnly,
+    hasRunningSync,
+    runningSupplier,
   } = useLoaderData<typeof loader>();
 
   const submit = useSubmit();
@@ -231,7 +253,15 @@ export default function ProductsIndexPage() {
   const [viewMode, setViewMode] = useState<"spreadsheet" | "thumbnail">("spreadsheet");
   const [searchValue, setSearchValue] = useState(initialSearch);
   const [categoryValue, setCategoryValue] = useState(initialCategory);
+  const [supplierValue, setSupplierValue] = useState(initialSupplierFilter);
+  const [inStockValue, setInStockValue] = useState(initialInStockOnly ? "true" : "");
   const [currentPerPage, setCurrentPerPage] = useState(String(perPage));
+
+  const supplierLabels: Record<string, string> = {
+    eldorado: "Eldorado",
+    honeysplace: "Honey's Place",
+    nalpac: "Nalpac",
+  };
 
   const applyFilters = (params: Record<string, string>) => {
     const sp = new URLSearchParams({
@@ -239,6 +269,8 @@ export default function ProductsIndexPage() {
       perPage: currentPerPage,
       search: searchValue,
       category: categoryValue,
+      supplier: supplierValue,
+      inStock: inStockValue,
       ...params,
     });
     navigate(`/app/products?${sp.toString()}`);
@@ -249,13 +281,17 @@ export default function ProductsIndexPage() {
   }, []);
 
   const handleSearchSubmit = () => {
-    applyFilters({ search: searchValue, category: categoryValue });
+    applyFilters({ search: searchValue });
   };
+
+  const hasActiveFilters = !!(searchValue || categoryValue || supplierValue || inStockValue);
 
   const handleClearSearch = () => {
     setSearchValue("");
     setCategoryValue("");
-    applyFilters({ search: "", category: "" });
+    setSupplierValue("");
+    setInStockValue("");
+    applyFilters({ search: "", category: "", supplier: "", inStock: "" });
   };
 
   const cheapestSupplier = (row: ProductRow): string | null => {
@@ -281,10 +317,12 @@ export default function ProductsIndexPage() {
     isCheapest: boolean,
     isLocked: boolean
   ) => {
+    // null cost or qty means this supplier doesn't carry the item at all
     if (cost == null || qty == null)
       return <Text as="span" tone="subdued">—</Text>;
+    // qty=0 means out of stock — show price subdued so it's visible but not misleading
     if (qty === 0)
-      return <Text as="span" tone="subdued">$0.00</Text>;
+      return <Text as="span" tone="subdued">${cost.toFixed(2)}</Text>;
     return (
       <InlineStack gap="100" blockAlign="center">
         <Text
@@ -336,10 +374,11 @@ export default function ProductsIndexPage() {
           />
         </IndexTable.Cell>
         <IndexTable.Cell>
+          <div style={{ maxWidth: "260px" }}>
           <BlockStack gap="100">
-            <InlineStack gap="200" blockAlign="center">
+            <InlineStack gap="200" blockAlign="start" wrap>
               {/* Stop propagation so clicking the link doesn't also select the row */}
-              <span onClick={(e) => e.stopPropagation()}>
+              <span onClick={(e) => e.stopPropagation()} style={{ wordBreak: "break-word", whiteSpace: "normal" }}>
                 <Link to={`/app/products/${row.upc}`}>
                   <Text as="span" variant="bodyMd" fontWeight="semibold">
                     {row.title}
@@ -362,6 +401,7 @@ export default function ProductsIndexPage() {
             </InlineStack>
             <Text as="span" variant="bodySm" tone="subdued">{row.upc}</Text>
           </BlockStack>
+          </div>
         </IndexTable.Cell>
         <IndexTable.Cell>
           <Text as="span">{row.msrp ? `$${row.msrp.toFixed(2)}` : "—"}</Text>
@@ -464,6 +504,14 @@ export default function ProductsIndexPage() {
     >
       <Layout>
         <Layout.Section>
+          {hasRunningSync && (
+            <Banner tone="info" title="Sync in progress">
+              {runningSupplier && runningSupplier !== "all"
+                ? `${supplierLabels[runningSupplier] || runningSupplier} catalog sync is running. Pricing and inventory may be incomplete — please refresh in a few minutes.`
+                : "An inventory sync is running. Data shown may be slightly out of date — please refresh in a few minutes."}
+            </Banner>
+          )}
+
           {enabledSuppliers.length === 0 && (
             <Banner
               title="No suppliers configured"
@@ -476,65 +524,94 @@ export default function ProductsIndexPage() {
 
           {/* Toolbar */}
           <Card>
-            <InlineStack gap="300" blockAlign="end" wrap>
-              <div style={{ flex: "1", minWidth: "200px" }}>
-                <TextField
-                  label="Search"
-                  labelHidden
-                  value={searchValue}
-                  onChange={handleSearch}
-                  placeholder="Search by title, UPC, brand, description..."
-                  autoComplete="off"
-                  clearButton
-                  onClearButtonClick={handleClearSearch}
-                />
-              </div>
+            <BlockStack gap="300">
+              {/* Row 1: search + view toggle */}
+              <InlineStack gap="200" blockAlign="end" wrap>
+                <form
+                  onSubmit={(e) => { e.preventDefault(); handleSearchSubmit(); }}
+                  style={{ display: "flex", gap: "8px", flex: "1", minWidth: "280px", alignItems: "flex-end" }}
+                >
+                  <div style={{ flex: 1 }}>
+                    <TextField
+                      label="Search"
+                      labelHidden
+                      value={searchValue}
+                      onChange={handleSearch}
+                      placeholder="Search by title, UPC, brand, description..."
+                      autoComplete="off"
+                      clearButton
+                      onClearButtonClick={() => { setSearchValue(""); applyFilters({ search: "" }); }}
+                    />
+                  </div>
+                  <Button submit>Search</Button>
+                </form>
 
-              {categories.length > 0 && (
-                <div style={{ minWidth: "180px" }}>
+                {hasActiveFilters && (
+                  <Button variant="plain" onClick={handleClearSearch}>Clear filters</Button>
+                )}
+
+                <ButtonGroup variant="segmented">
+                  <Button pressed={viewMode === "spreadsheet"} onClick={() => setViewMode("spreadsheet")}>Table</Button>
+                  <Button pressed={viewMode === "thumbnail"} onClick={() => setViewMode("thumbnail")}>Grid</Button>
+                </ButtonGroup>
+              </InlineStack>
+
+              {/* Row 2: filter selects */}
+              <InlineStack gap="200" blockAlign="end" wrap>
+                {enabledSuppliers.length > 1 && (
+                  <div style={{ minWidth: "160px" }}>
+                    <Select
+                      label="Supplier"
+                      options={[
+                        { label: "All suppliers", value: "" },
+                        ...enabledSuppliers.map((s) => ({ label: supplierLabels[s] || s, value: s })),
+                      ]}
+                      value={supplierValue}
+                      onChange={(v) => { setSupplierValue(v); applyFilters({ supplier: v }); }}
+                    />
+                  </div>
+                )}
+
+                {categories.length > 0 && (
+                  <div style={{ minWidth: "180px" }}>
+                    <Select
+                      label="Category"
+                      options={[
+                        { label: "All categories", value: "" },
+                        ...categories.map((c) => ({ label: c, value: c })),
+                      ]}
+                      value={categoryValue}
+                      onChange={(v) => { setCategoryValue(v); applyFilters({ category: v }); }}
+                    />
+                  </div>
+                )}
+
+                <div style={{ minWidth: "150px" }}>
                   <Select
-                    label="Category"
-                    labelHidden
+                    label="Stock status"
                     options={[
-                      { label: "All categories", value: "" },
-                      ...categories.map((c) => ({ label: c, value: c })),
+                      { label: "All products", value: "" },
+                      { label: "In stock only", value: "true" },
                     ]}
-                    value={categoryValue}
-                    onChange={(v) => {
-                      setCategoryValue(v);
-                      applyFilters({ category: v });
-                    }}
+                    value={inStockValue}
+                    onChange={(v) => { setInStockValue(v); applyFilters({ inStock: v }); }}
                   />
                 </div>
-              )}
 
-              <div style={{ minWidth: "120px" }}>
-                <Select
-                  label="Per page"
-                  labelHidden
-                  options={[
-                    { label: "25 per page", value: "25" },
-                    { label: "50 per page", value: "50" },
-                    { label: "100 per page", value: "100" },
-                  ]}
-                  value={currentPerPage}
-                  onChange={(v) => {
-                    setCurrentPerPage(v);
-                    applyFilters({ perPage: v, page: "1" });
-                  }}
-                />
-              </div>
-
-              <Button onClick={handleSearchSubmit}>Search</Button>
-              {(searchValue || categoryValue) && (
-                <Button variant="plain" onClick={handleClearSearch}>Clear</Button>
-              )}
-
-              <ButtonGroup variant="segmented">
-                <Button pressed={viewMode === "spreadsheet"} onClick={() => setViewMode("spreadsheet")}>Table</Button>
-                <Button pressed={viewMode === "thumbnail"} onClick={() => setViewMode("thumbnail")}>Grid</Button>
-              </ButtonGroup>
-            </InlineStack>
+                <div style={{ minWidth: "120px" }}>
+                  <Select
+                    label="Per page"
+                    options={[
+                      { label: "25 per page", value: "25" },
+                      { label: "50 per page", value: "50" },
+                      { label: "100 per page", value: "100" },
+                    ]}
+                    value={currentPerPage}
+                    onChange={(v) => { setCurrentPerPage(v); applyFilters({ perPage: v, page: "1" }); }}
+                  />
+                </div>
+              </InlineStack>
+            </BlockStack>
           </Card>
 
           {/* Spreadsheet view */}
