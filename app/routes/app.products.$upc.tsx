@@ -202,30 +202,56 @@ export default function ProductDetailPage() {
           </Layout.Section>
         )}
 
-        {/* Image Gallery */}
-        <Layout.Section>
+        {/* Product Info */}
+        <Layout.Section variant="oneThird">
           <Card>
-            <BlockStack gap="400">
+            <BlockStack gap="300">
               <Text as="h2" variant="headingMd">
-                Images ({uniqueImages.length} across all suppliers)
+                Product Details
               </Text>
               <Divider />
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
-                {uniqueImages.slice(0, 20).map((img: string) => (
-                  <a key={img} href={img} target="_blank" rel="noreferrer">
-                    <Thumbnail source={img} alt="Product image" size="large" />
-                  </a>
-                ))}
-                {uniqueImages.length === 0 && (
-                  <Text as="p" tone="subdued">
-                    No images available
+              {canonical?.manufacturer && (
+                <InlineStack align="space-between">
+                  <Text as="span" tone="subdued">
+                    Brand
                   </Text>
-                )}
-              </div>
+                  <Text as="span">{canonical.manufacturer}</Text>
+                </InlineStack>
+              )}
+              {canonical?.category && (
+                <InlineStack align="space-between">
+                  <Text as="span" tone="subdued">
+                    Category
+                  </Text>
+                  <Text as="span">{canonical.category}</Text>
+                </InlineStack>
+              )}
+              <InlineStack align="space-between">
+                <Text as="span" tone="subdued">
+                  UPC
+                </Text>
+                <Text as="span">{upc}</Text>
+              </InlineStack>
+              <InlineStack align="space-between">
+                <Text as="span" tone="subdued">
+                  Suppliers
+                </Text>
+                <Text as="span">{supplierList.length}</Text>
+              </InlineStack>
+              {match.lockedSupplier && (
+                <InlineStack align="space-between">
+                  <Text as="span" tone="subdued">
+                    Locked Supplier
+                  </Text>
+                  <Badge>
+                    {supplierLabel[match.lockedSupplier] ||
+                      match.lockedSupplier}
+                  </Badge>
+                </InlineStack>
+              )}
             </BlockStack>
           </Card>
         </Layout.Section>
-
         {/* Pricing by Supplier */}
         <Layout.Section>
           <Card>
@@ -235,7 +261,7 @@ export default function ProductDetailPage() {
               </Text>
               <Divider />
               {/* FIX P2.4: Use "\u2014" unicode escape for em dash to avoid
-                  UTF-8/Latin-1 encoding artifacts that rendered as "Ã¢â¬" */}
+                  UTF-8/Latin-1 encoding artifacts that rendered as "ÃÂ¢Ã¢ÂÂ¬" */}
               <DataTable
                 columnContentTypes={[
                   "text",
@@ -294,56 +320,30 @@ export default function ProductDetailPage() {
           </Card>
         </Layout.Section>
 
-        {/* Product Info */}
-        <Layout.Section variant="oneThird">
+        {/* Image Gallery */}
+        <Layout.Section>
           <Card>
-            <BlockStack gap="300">
+            <BlockStack gap="400">
               <Text as="h2" variant="headingMd">
-                Product Details
+                Images ({uniqueImages.length} across all suppliers)
               </Text>
               <Divider />
-              {canonical?.manufacturer && (
-                <InlineStack align="space-between">
-                  <Text as="span" tone="subdued">
-                    Brand
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
+                {uniqueImages.slice(0, 20).map((img: string) => (
+                  <a key={img} href={img} target="_blank" rel="noreferrer">
+                    <Thumbnail source={img} alt="Product image" size="large" />
+                  </a>
+                ))}
+                {uniqueImages.length === 0 && (
+                  <Text as="p" tone="subdued">
+                    No images available
                   </Text>
-                  <Text as="span">{canonical.manufacturer}</Text>
-                </InlineStack>
-              )}
-              {canonical?.category && (
-                <InlineStack align="space-between">
-                  <Text as="span" tone="subdued">
-                    Category
-                  </Text>
-                  <Text as="span">{canonical.category}</Text>
-                </InlineStack>
-              )}
-              <InlineStack align="space-between">
-                <Text as="span" tone="subdued">
-                  UPC
-                </Text>
-                <Text as="span">{upc}</Text>
-              </InlineStack>
-              <InlineStack align="space-between">
-                <Text as="span" tone="subdued">
-                  Suppliers
-                </Text>
-                <Text as="span">{supplierList.length}</Text>
-              </InlineStack>
-              {match.lockedSupplier && (
-                <InlineStack align="space-between">
-                  <Text as="span" tone="subdued">
-                    Locked Supplier
-                  </Text>
-                  <Badge>
-                    {supplierLabel[match.lockedSupplier] ||
-                      match.lockedSupplier}
-                  </Badge>
-                </InlineStack>
-              )}
+                )}
+              </div>
             </BlockStack>
           </Card>
         </Layout.Section>
+
       </Layout>
 
       {/* Import Modal */}
