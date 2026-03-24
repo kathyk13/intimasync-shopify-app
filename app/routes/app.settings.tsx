@@ -30,7 +30,7 @@ import { SHIPPING_CODES as HP_SHIPPING } from "../lib/suppliers/honeysplace.serv
 import { SHIPPING_CODES as ELD_SHIPPING } from "../lib/suppliers/eldorado.server";
 import { SHIPPING_METHODS as NALPAC_SHIPPING } from "../lib/suppliers/nalpac.server";
 
-// ─── Loader ───
+// âââ Loader âââ
 export async function loader({ request }: LoaderFunctionArgs) {
   const { session } = await authenticate.admin(request);
   const shop = await prisma.shop.findUnique({ where: { shopifyDomain: session.shop } });
@@ -71,7 +71,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   });
 }
 
-// ─── Action ───
+// âââ Action âââ
 export async function action({ request }: ActionFunctionArgs) {
   const { session } = await authenticate.admin(request);
   const shop = await prisma.shop.findUnique({ where: { shopifyDomain: session.shop } });
@@ -102,6 +102,7 @@ export async function action({ request }: ActionFunctionArgs) {
       credentials.account = String(formData.get("account") || "");
       credentials.apiToken = String(formData.get("apiToken") || "");
       credentials.feedToken = String(formData.get("feedToken") || "");
+      credentials.feedUrl = String(formData.get("feedUrl") || "");
     } else if (supplier === "nalpac") {
       credentials.username = String(formData.get("username") || "");
       credentials.password = String(formData.get("password") || "");
@@ -154,7 +155,7 @@ const supplierLabels: Record<string, string> = {
   ecn: "East Coast News",
 };
 
-// ─── FAQ content per supplier ───
+// âââ FAQ content per supplier âââ
 const supplierFAQ: Record<string, { question: string; answer: string }[]> = {
   honeysplace: [
     {
@@ -198,7 +199,7 @@ const supplierFAQ: Record<string, { question: string; answer: string }[]> = {
   ],
 };
 
-// ─── Component ───
+// âââ Component âââ
 export default function SettingsPage() {
   const {
     eldorado, honeysplace, nalpac, ecn,
@@ -245,6 +246,7 @@ export default function SettingsPage() {
                 { name: "account", label: "Account Number", type: "text", placeholder: "01234" },
                 { name: "apiToken", label: "API Token", type: "password", placeholder: "From My Account > Data Integration > API Setup" },
                 { name: "feedToken", label: "Data Feed Token", type: "text", placeholder: "From the data feed URL" },
+              { name: "feedUrl", label: "Full Feed URL (optional)", type: "text", placeholder: "Paste complete URL from My Account > Data Integration > Data Feeds" },
               ]}
             />
             <SupplierSection supplier="eldorado" title="Eldorado" subtitle="eldorado.net" existing={eldorado} shippingOptions={eldShippingOptions}
@@ -308,7 +310,7 @@ export default function SettingsPage() {
                       }}
                     >
                       {/* Drag handle */}
-                      <span style={{ color: "#8c9196", fontSize: "18px", lineHeight: 1, cursor: "grab" }}>⠿</span>
+                      <span style={{ color: "#8c9196", fontSize: "18px", lineHeight: 1, cursor: "grab" }}>â ¿</span>
                       <Text as="span" variant="bodySm" tone="subdued">{i + 1}.</Text>
                       <Text as="span" fontWeight="semibold">{supplierLabels[sup] || sup}</Text>
                     </div>
@@ -342,7 +344,7 @@ export default function SettingsPage() {
   );
 }
 
-// ─── Supplier Section (always open, flex height) ───
+// âââ Supplier Section (always open, flex height) âââ
 function SupplierSection({
   supplier, title, subtitle, existing, fields, shippingOptions, faq,
 }: {
