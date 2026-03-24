@@ -5,7 +5,7 @@
  * Auth: username + password (HTTP Basic Auth)
  */
 
-// âââ Types âââ
+// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Types Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 
 export interface NalpacCredentials {
   username: string;
@@ -64,7 +64,7 @@ export interface NalpacStockItem {
   quantityAvailable: number;
 }
 
-// âââ Auth helper âââ
+// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Auth helper Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 
 const DEFAULT_BASE_URL = "https://api2.nalpac.com";
 
@@ -79,11 +79,11 @@ function getBaseUrl(credentials: NalpacCredentials): string {
   return credentials.baseUrl || DEFAULT_BASE_URL;
 }
 
-// âââ Product Catalog âââ
+// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Product Catalog Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 
 /**
  * Fetch Nalpac product catalog (paginated)
- * Endpoint varies by implementation â check https://api2.nalpac.com/Help
+ * Endpoint varies by implementation Ã¢ÂÂ check https://api2.nalpac.com/Help
  */
 export async function fetchProducts(
   credentials: NalpacCredentials,
@@ -97,11 +97,11 @@ export async function fetchProducts(
     Accept: "application/json",
   };
 
-  // Try multiple endpoints — Nalpac API path varies by account configuration
+  // Try multiple endpoints â Nalpac API path varies by account configuration
   const endpoints = [
-    `${baseUrl}/api/products?page=${page}&pageSize=${pageSize}`,
-    `${baseUrl}/api/items?page=${page}&pageSize=${pageSize}`,
-    `${baseUrl}/api/Products?page=${page}&pageSize=${pageSize}`,
+    `${baseUrl}/api/product?pageNumber=${page}&pageSize=${pageSize}`,
+    `${baseUrl}/api/productV2?pageNumber=${page}&pageSize=${pageSize}`,
+    `${baseUrl}/api/products?pageNumber=${page}&pageSize=${pageSize}`,
   ];
 
   let response: Response | null = null;
@@ -113,7 +113,7 @@ export async function fetchProducts(
     lastStatus = r.status;
   }
   if (!response) {
-    throw new Error(`Nalpac product fetch HTTP ${lastStatus} (tried /api/products, /api/items, /api/Products)`);
+    throw new Error(`Nalpac product fetch HTTP ${lastStatus} (tried /api/product, /api/productV2, /api/products)`);
   }
 
   const data = await response.json() as any;
@@ -146,7 +146,7 @@ function mapNalpacProduct(item: any): NalpacProduct {
   };
 }
 
-// âââ Inventory Check âââ
+// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Inventory Check Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 
 /**
  * Check inventory for specific SKUs
@@ -205,7 +205,7 @@ export async function checkInventory(
   return results;
 }
 
-// âââ Place Order âââ
+// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Place Order Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 
 export async function placeOrder(
   credentials: NalpacCredentials,
@@ -257,7 +257,7 @@ export async function placeOrder(
   };
 }
 
-// âââ Order Status âââ
+// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Order Status Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 
 export async function getOrderStatus(
   credentials: NalpacCredentials,
@@ -291,14 +291,14 @@ export async function getOrderStatus(
   };
 }
 
-// âââ Validate Credentials âââ
+// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Validate Credentials Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 
 export async function validateCredentials(
   credentials: NalpacCredentials
 ): Promise<{ valid: boolean; error?: string }> {
   try {
     const baseUrl = getBaseUrl(credentials);
-    const response = await fetch(`${baseUrl}/api/products?pageSize=1`, {
+    const response = await fetch(`${baseUrl}/api/product?pageNumber=1&pageSize=1`, {
       headers: {
         Authorization: getAuthHeader(credentials),
         Accept: "application/json",
@@ -313,8 +313,8 @@ export async function validateCredentials(
   }
 }
 
-// âââ Shipping Methods âââ
-// These are common Nalpac shipping codes â verify with actual API docs
+// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Shipping Methods Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+// These are common Nalpac shipping codes Ã¢ÂÂ verify with actual API docs
 
 export const SHIPPING_METHODS = [
   { code: "GROUND", label: "UPS Ground" },
