@@ -11,7 +11,7 @@ import { checkQuantityBatch, getDiscounts, downloadProductFeed } from "./supplie
 import { checkInventory } from "./suppliers/nalpac.server";
 import { updateDefaultSupplier } from "./order-routing.server";
 
-// âââ Main sync function âââ
+// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Main sync function Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 export async function runInventorySync(shopId: string): Promise<{
   success: boolean;
   updated: number;
@@ -47,10 +47,10 @@ export async function runInventorySync(shopId: string): Promise<{
 
     const credMap = new Map<string, any>();
     credentials.forEach((c) => {
-      credMap.set(c.supplier, JSON.parse(c.credentialsEncrypted));
+      credMap.set(c.supplier, typeof c.credentialsEncrypted === "string" ? JSON.parse(c.credentialsEncrypted as string) : c.credentialsEncrypted);
     });
 
-    // ââ Honey's Place sync ââ
+    // Ã¢ÂÂÃ¢ÂÂ Honey's Place sync Ã¢ÂÂÃ¢ÂÂ
     if (credMap.has("honeysplace")) {
       const hpCreds = decryptHP(credMap.get("honeysplace")!);
       const hpSkus = matches
@@ -72,7 +72,7 @@ export async function runInventorySync(shopId: string): Promise<{
       }
     }
 
-    // ââ Eldorado sync ââ
+    // Ã¢ÂÂÃ¢ÂÂ Eldorado sync Ã¢ÂÂÃ¢ÂÂ
     if (credMap.has("eldorado")) {
       const eldCreds = credMap.get("eldorado");
       const eldModels = matches
@@ -114,7 +114,7 @@ export async function runInventorySync(shopId: string): Promise<{
       }
     }
 
-    // ââ Nalpac sync ââ
+    // Ã¢ÂÂÃ¢ÂÂ Nalpac sync Ã¢ÂÂÃ¢ÂÂ
     if (credMap.has("nalpac")) {
       const nalpacCreds = credMap.get("nalpac");
       const nalpacSkus = matches
@@ -136,14 +136,14 @@ export async function runInventorySync(shopId: string): Promise<{
       }
     }
 
-    // ââ Re-evaluate default suppliers based on new prices/stock ââ
+    // Ã¢ÂÂÃ¢ÂÂ Re-evaluate default suppliers based on new prices/stock Ã¢ÂÂÃ¢ÂÂ
     for (const match of matches) {
       if (match.upc) {
         await updateDefaultSupplier(shopId, match.upc).catch(() => {});
       }
     }
 
-    // ââ Push updated inventory to Shopify ââ
+    // Ã¢ÂÂÃ¢ÂÂ Push updated inventory to Shopify Ã¢ÂÂÃ¢ÂÂ
     await pushInventoryToShopify(shopId, matches, credMap);
 
     await completeSyncLog(log.id, matches.length, updated, errors);
@@ -159,7 +159,7 @@ export async function runInventorySync(shopId: string): Promise<{
   }
 }
 
-// âââ Push inventory quantities to Shopify âââ
+// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Push inventory quantities to Shopify Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 async function pushInventoryToShopify(
   shopId: string,
   matches: any[],
@@ -249,7 +249,7 @@ async function completeSyncLog(
   });
 }
 
-// âââ Product catalog sync (full import from supplier feeds) âââ
+// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Product catalog sync (full import from supplier feeds) Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 // FIX: Unified upsert loop for all three suppliers so HP and Nalpac titles,
 // images, and descriptions are actually saved to the database, and
 // attemptUpcMatch is called for all suppliers so ProductMatch.honeysplaceSku
@@ -269,14 +269,14 @@ export async function syncProductCatalog(
     return { added: 0, updated: 0, errors: ["Supplier not enabled"] };
   }
 
-  const creds = JSON.parse(credential.credentialsEncrypted);
+  const creds = typeof credential.credentialsEncrypted === "string" ? JSON.parse(credential.credentialsEncrypted as string) : credential.credentialsEncrypted;
 
   const log = await prisma.syncLog.create({
     data: { shopId, supplier, syncType: "products", status: "running" },
   });
 
   try {
-    // Normalized product shape â same interface for all three suppliers
+    // Normalized product shape Ã¢ÂÂ same interface for all three suppliers
     interface SyncProduct {
       sku: string;
       upc: string | null;
@@ -292,7 +292,7 @@ export async function syncProductCatalog(
 
     let products: SyncProduct[] = [];
 
-    // ââ Fetch from supplier ââ
+    // Ã¢ÂÂÃ¢ÂÂ Fetch from supplier Ã¢ÂÂÃ¢ÂÂ
     if (supplier === "honeysplace") {
       const { fetchProductFeed, buildFeedUrl } = await import(
         "./suppliers/honeysplace.server"
@@ -351,7 +351,7 @@ export async function syncProductCatalog(
       }));
     }
 
-    // ââ Unified upsert for all suppliers ââ
+    // Ã¢ÂÂÃ¢ÂÂ Unified upsert for all suppliers Ã¢ÂÂÃ¢ÂÂ
     for (const product of products) {
       try {
         const existing = await prisma.supplierProduct.findFirst({
@@ -413,7 +413,7 @@ export async function syncProductCatalog(
   }
 }
 
-// âââ UPC-based cross-supplier matching âââ
+// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ UPC-based cross-supplier matching Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 async function attemptUpcMatch(
   shopId: string,
   upc: string,
