@@ -400,12 +400,25 @@ export function parseProductFeedTsv(content: string): EldoradoProduct[] {
 export async function downloadProductFeed(
   credentials: EldoradoCredentials
 ): Promise<EldoradoProduct[]> {
+  if (!credentials.sftpUsername || !credentials.sftpPassword) {
+    throw new Error(
+      "Eldorado SFTP credentials are not configured. " +
+      "Go to Settings > Eldorado and enter your SFTP username and password."
+    );
+  }
   const tmpDir = await mkdtemp(join(tmpdir(), "eldorado-feed-"));
   const localPath = join(tmpDir, "product_feed.tsv");
   try {
     await withSftp(credentials, async (ssh) => {
       // Auto-discover the product feed file in /feeds/ (sorted newest first)
       const listResult = await ssh.execCommand("ls -t /feeds/");
+      if (listResult.stderr && !listResult.stdout) {
+        throw new Error(
+          "Eldorado SFTP: cannot list /feeds/ directory. " +
+          "Error: " + listResult.stderr.trim() +
+          " - Confirm your SFTP credentials and that Eldorado has provisioned your account."
+        );
+      }
       const allFiles = listResult.stdout
         .trim()
         .split("\n")
@@ -419,10 +432,17 @@ export async function downloadProductFeed(
       if (!feedFile) {
         throw new Error(
           "No product feed file found in /feeds/ on Eldorado SFTP. " +
-          "Available: " + (allFiles.join(", ") || "(none)")
+          "Eldorado drops the file daily around 9pm Mountain time. " +
+          "Files available: " + (allFiles.join(", ") || "(none)")
         );
       }
-      await ssh.getFile(localPath, "/feeds/" + feedFile);
+      const downloaded = await ssh.getFile(localPath, "/feeds/" + feedFile);
+      if (downloaded === false) {
+        throw new Error(
+          "Eldorado SFTP: failed to download /feeds/" + feedFile +
+          ". The file may be locked or your account may not have read permission."
+        );
+      }
     });
     const content = await readFile(localPath, "utf-8");
     return parseProductFeedTsv(content);

@@ -69,9 +69,8 @@ const SUPPLIER_NAMES: Record<string, string> = {
   eldorado: "Eldorado",
   nalpac: "Nalpac",
   ecn: "East Coast News",
-  sextoydistributing: "SexToyDistributing",
 };
-const ALL_SUPPLIERS = ["honeysplace", "eldorado", "nalpac", "ecn", "sextoydistributing"];
+const ALL_SUPPLIERS = ["honeysplace", "eldorado", "nalpac", "ecn"];
 
 export default function Dashboard() {
   const { shopifyProductCount, linkedCount, supplierProducts, pendingOrders, suppliers, dbError } =

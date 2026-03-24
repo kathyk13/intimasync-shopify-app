@@ -4,7 +4,7 @@
  */
 
 import { json, type LoaderFunctionArgs } from "@remix-run/node";
-import { useLoaderData, Link } from "@remix-run/react";
+import { useLoaderData, Link, useNavigate } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -86,6 +86,7 @@ function statusTone(status: string): "success" | "attention" | "critical" | "inf
 
 export default function OrdersPage() {
   const { orders, total, page, perPage, dbError } = useLoaderData<typeof loader>();
+  const navigate = useNavigate();
 
   if (dbError) {
     return (
@@ -132,7 +133,7 @@ export default function OrdersPage() {
       order.shopifyOrderNumber || order.shopifyOrderId,
       suppliers.join(", "),
       <Badge tone={statusTone(order.status)}>{order.status}</Badge>,
-      order.lines.map((l) => l.supplierOrderId).filter(Boolean).join(", ") || "â",
+      order.lines.map((l) => l.supplierOrderRef).filter(Boolean).join(", ") || "—",
       tracking.length > 0 ? tracking : "â",
       new Date(order.createdAt).toLocaleDateString(),
     ];
@@ -163,13 +164,9 @@ export default function OrdersPage() {
           <div style={{ display: "flex", justifyContent: "center", marginTop: "16px" }}>
             <Pagination
               hasPrevious={page > 1}
-              onPrevious={() => {
-                window.location.href = `/app/orders?page=${page - 1}`;
-              }}
+              onPrevious={() => navigate(`/app/orders?page=${page - 1}`)}
               hasNext={page * perPage < total}
-              onNext={() => {
-                window.location.href = `/app/orders?page=${page + 1}`;
-              }}
+              onNext={() => navigate(`/app/orders?page=${page + 1}`)}
             />
           </div>
         </Layout.Section>

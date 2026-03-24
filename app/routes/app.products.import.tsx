@@ -10,7 +10,7 @@ import prisma from "../db.server";
 interface ImportItem {
   upc: string;
   sku: string;
-  addToFavorites: boolean;
+  addToFavorites?: boolean;
 }
 
 export async function action({ request }: ActionFunctionArgs) {

@@ -105,7 +105,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             creds,
             {
               sourceOrderNumber: sourceOrderNum,
-              custPONumber: sourceOrderNum,
               name: customerName,
               addressLine1: (shipping.address1 || "").substring(0, 30),
               addressLine2: shipping.address2 ? shipping.address2.substring(0, 25) : undefined,
@@ -119,8 +118,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 code: item.supplierSku,
                 quantity: item.qty,
               })),
-            },
-            process.env.NODE_ENV !== "production" // test mode in dev
+            }
           );
 
           await updateLineRoutingStatus(
@@ -128,7 +126,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             String(order.id),
             group.items.map((i) => i.lineItemId),
             result.success ? "submitted" : "error",
-            result.referenceId
+            result.filename  // Eldorado order ref is the uploaded XML filename
           );
 
           if (!result.success) {

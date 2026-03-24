@@ -6,14 +6,14 @@ import prisma from "../db.server";
  * Internal sync endpoint - no Shopify auth required.
  * Secured by SHOPIFY_API_SECRET key in Authorization header.
  * Usage: POST /internal/sync
- *   Header: Authorization: Bearer <SHOPIFY_API_SECRET>
+ *   Header: Authorization: Bearer <SHOPIFY_API_SECRET>  (use the secret, NOT the public API key)
  *   Body: { supplier: "honeysplace" | "nalpac" | "eldorado", shop: "intimasync.myshopify.com" }
  */
 export async function action({ request }: ActionFunctionArgs) {
   // Verify secret key
   const authHeader = request.headers.get("Authorization") || "";
   const token = authHeader.replace("Bearer ", "");
-  if (token !== process.env.SHOPIFY_API_KEY) {
+  if (token !== process.env.SHOPIFY_API_SECRET) {
     return json({ error: "Unauthorized" }, { status: 401 });
   }
 
