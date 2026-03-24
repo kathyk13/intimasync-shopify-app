@@ -106,14 +106,41 @@ export async function fetchProducts(
 
   let response: Response | null = null;
   let lastStatus = 0;
+  let lastUrl = "";
+  console.log(`[nalpac] fetchProducts: trying ${endpoints.length} endpoints (page=${page})`);
   for (const url of endpoints) {
-    const r = await fetch(url, { headers });
-    if (r.status === 401) throw new Error("Nalpac: Invalid credentials");
-    if (r.ok) { response = r; break; }
+    let r: Response;
+    try {
+      r = await fetch(url, { headers });
+    } catch (netErr) {
+      throw new Error(`Nalpac: network error connecting to ${url}: ${netErr}`);
+    }
+    if (r.status === 401 || r.status === 403) {
+      throw new Error(
+        `Nalpac authentication failed (HTTP ${r.status}). ` +
+        `Check your username and password in Settings.`
+      );
+    }
+    if (r.ok) {
+      console.log(`[nalpac] fetchProducts: endpoint OK — ${url}`);
+      response = r;
+      break;
+    }
+    console.log(`[nalpac] fetchProducts: endpoint ${url} returned HTTP ${r.status}`);
     lastStatus = r.status;
+    lastUrl = url;
   }
   if (!response) {
-    throw new Error(`Nalpac product fetch HTTP ${lastStatus} (tried /api/product, /api/productV2, /api/products)`);
+    if (lastStatus === 404) {
+      throw new Error(
+        `Nalpac: no working product endpoint found (all returned 404). ` +
+        `The API path may have changed — contact Nalpac support for the correct endpoint.`
+      );
+    }
+    if (lastStatus >= 500) {
+      throw new Error(`Nalpac server error (HTTP ${lastStatus}). The Nalpac API may be temporarily down.`);
+    }
+    throw new Error(`Nalpac product fetch failed (HTTP ${lastStatus} from ${lastUrl}).`);
   }
 
   const data = await response.json() as any;
@@ -296,20 +323,17 @@ export async function getOrderStatus(
 export async function validateCredentials(
   credentials: NalpacCredentials
 ): Promise<{ valid: boolean; error?: string }> {
+  // Reuse fetchProducts so Test Connection exercises the exact same auth
+  // path and endpoint discovery that catalog sync will use.
+  console.log(`[nalpac] validateCredentials: testing with fetchProducts (page=1, size=1)`);
   try {
-    const baseUrl = getBaseUrl(credentials);
-    const response = await fetch(`${baseUrl}/api/product?pageNumber=1&pageSize=1`, {
-      headers: {
-        Authorization: getAuthHeader(credentials),
-        Accept: "application/json",
-      },
-    });
-    if (response.status === 401) {
-      return { valid: false, error: "Invalid username or password." };
-    }
+    await fetchProducts(credentials, 1, 1);
+    console.log(`[nalpac] validateCredentials: success`);
     return { valid: true };
   } catch (error) {
-    return { valid: false, error: String(error) };
+    const msg = String(error);
+    console.log(`[nalpac] validateCredentials: failed — ${msg}`);
+    return { valid: false, error: msg };
   }
 }
 

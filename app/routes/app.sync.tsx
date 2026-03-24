@@ -18,6 +18,7 @@ import {
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import { runInventorySync, syncProductCatalog } from "../lib/inventory-sync.server";
+import { CATALOG_SYNC_IDS, type CatalogSyncSupplierId } from "../lib/suppliers.config";
 import prisma from "../db.server";
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -80,12 +81,12 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     if (intent === "sync_catalog" && supplier) {
-      if (!["honeysplace", "eldorado", "nalpac"].includes(supplier)) {
+      if (!CATALOG_SYNC_IDS.includes(supplier as CatalogSyncSupplierId)) {
         return json({ success: false, error: "Unknown supplier" });
       }
       const result = await syncProductCatalog(
         shop.id,
-        supplier as "honeysplace" | "eldorado" | "nalpac"
+        supplier as CatalogSyncSupplierId
       );
       return json({
         success: result.errors.length === 0,
@@ -126,7 +127,7 @@ export default function SyncPage() {
     return (
       <Page title="Sync History">
         <Banner tone="warning" title="Sync data unavailable">
-          <p>Sync history could not be loaded. This may be a temporary issue Ã¢ÂÂ please reload the page.</p>
+          <p>Sync history could not be loaded. This may be a temporary issue - please reload the page.</p>
         </Banner>
       </Page>
     );

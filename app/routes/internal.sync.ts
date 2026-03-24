@@ -1,5 +1,6 @@
 import { json, type ActionFunctionArgs } from "@remix-run/node";
 import { syncProductCatalog } from "../lib/inventory-sync.server";
+import { CATALOG_SYNC_IDS, type CatalogSyncSupplierId } from "../lib/suppliers.config";
 import prisma from "../db.server";
 
 /**
@@ -18,11 +19,11 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const supplier = body.supplier as "honeysplace" | "nalpac" | "eldorado";
+  const supplier = body.supplier as CatalogSyncSupplierId;
   const shopDomain = body.shop || "intimasync.myshopify.com";
 
-  if (!supplier || !["honeysplace", "nalpac", "eldorado"].includes(supplier)) {
-    return json({ error: "Invalid supplier. Use: honeysplace, nalpac, or eldorado" }, { status: 400 });
+  if (!supplier || !CATALOG_SYNC_IDS.includes(supplier)) {
+    return json({ error: `Invalid supplier. Use: ${CATALOG_SYNC_IDS.join(", ")}` }, { status: 400 });
   }
 
   // Look up the shop ID

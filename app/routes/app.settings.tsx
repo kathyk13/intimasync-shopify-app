@@ -4,9 +4,9 @@
  * Cards always open, equal height, buttons anchored at bottom
  */
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { json, type LoaderFunctionArgs, type ActionFunctionArgs } from "@remix-run/node";
-import { useLoaderData, useSubmit } from "@remix-run/react";
+import { useLoaderData, useSubmit, useFetcher } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -43,18 +43,17 @@ export async function loader({ request }: LoaderFunctionArgs) {
     credMap[c.supplier] = { ...parsed, enabled: c.enabled, defaultShippingCode: c.defaultShippingCode };
   });
 
-  const priorityRaw = (shop as any).fulfillmentPriority || '["honeysplace","eldorado","nalpac","ecn"]';
+  const priorityRaw = (shop as any).fulfillmentPriority || '["honeysplace","eldorado","nalpac"]';
   let fulfillmentPriority: string[];
   try { fulfillmentPriority = JSON.parse(priorityRaw); }
-  catch { fulfillmentPriority = ["honeysplace", "eldorado", "nalpac", "ecn"]; }
+  catch { fulfillmentPriority = ["honeysplace", "eldorado", "nalpac"]; }
 
-  // Ensure all suppliers present (SexToyDistributing removed)
-  const allSuppliers = ["honeysplace", "eldorado", "nalpac", "ecn"];
-  for (const s of allSuppliers) {
+  // Keep only suppliers with active sync backends
+  const activeSuppliers = ["honeysplace", "eldorado", "nalpac"];
+  for (const s of activeSuppliers) {
     if (!fulfillmentPriority.includes(s)) fulfillmentPriority.push(s);
   }
-  // Remove SexToyDistributing if still in saved priority list
-  fulfillmentPriority = fulfillmentPriority.filter(s => allSuppliers.includes(s));
+  fulfillmentPriority = fulfillmentPriority.filter(s => activeSuppliers.includes(s));
 
   const consolidationThreshold = (shop as any).consolidationThreshold ?? 10;
 
@@ -62,7 +61,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
     eldorado: credMap.eldorado || null,
     honeysplace: credMap.honeysplace || null,
     nalpac: credMap.nalpac || null,
-    ecn: credMap.ecn || null,
     hpShippingOptions: HP_SHIPPING.map((s) => ({ label: s.label, value: s.code })),
     eldShippingOptions: ELD_SHIPPING.map((s) => ({ label: s.label, value: s.code })),
     nalpacShippingOptions: NALPAC_SHIPPING.map((s) => ({ label: s.label, value: s.code })),
@@ -94,10 +92,11 @@ export async function action({ request }: ActionFunctionArgs) {
   if (intent === "save_credentials") {
     const credentials: Record<string, string> = {};
     if (supplier === "eldorado") {
-      credentials.key = String(formData.get("key") || "");
       credentials.accountId = String(formData.get("accountId") || "");
+      credentials.sftpHost = String(formData.get("sftpHost") || "");
       credentials.sftpUsername = String(formData.get("sftpUsername") || "");
       credentials.sftpPassword = String(formData.get("sftpPassword") || "");
+      credentials.remoteFeedPath = String(formData.get("remoteFeedPath") || "/feeds/product_feed.tsv");
     } else if (supplier === "honeysplace") {
       credentials.account = String(formData.get("account") || "");
       credentials.apiToken = String(formData.get("apiToken") || "");
@@ -106,10 +105,6 @@ export async function action({ request }: ActionFunctionArgs) {
     } else if (supplier === "nalpac") {
       credentials.username = String(formData.get("username") || "");
       credentials.password = String(formData.get("password") || "");
-    } else if (supplier === "ecn") {
-      credentials.username = String(formData.get("username") || "");
-      credentials.password = String(formData.get("password") || "");
-      credentials.accountId = String(formData.get("accountId") || "");
     }
 
     const defaultShippingCode = String(formData.get("defaultShippingCode") || "");
@@ -152,7 +147,6 @@ const supplierLabels: Record<string, string> = {
   eldorado: "Eldorado",
   honeysplace: "Honey's Place",
   nalpac: "Nalpac",
-  ecn: "East Coast News",
 };
 
 // âââ FAQ content per supplier âââ
@@ -191,18 +185,12 @@ const supplierFAQ: Record<string, { question: string; answer: string }[]> = {
       answer: "Use the same username and password you use to log in to nalpac.com. If you don't have an account, apply at nalpac.com/apply.",
     },
   ],
-  ecn: [
-    {
-      question: "Where do I find my ECN credentials?",
-      answer: "Use the username, password, and account ID from your East Coast News wholesale account at ecnwholesale.com.",
-    },
-  ],
 };
 
 // âââ Component âââ
 export default function SettingsPage() {
   const {
-    eldorado, honeysplace, nalpac, ecn,
+    eldorado, honeysplace, nalpac,
     hpShippingOptions, eldShippingOptions, nalpacShippingOptions,
     fulfillmentPriority,
     consolidationThreshold,
@@ -252,10 +240,11 @@ export default function SettingsPage() {
             <SupplierSection supplier="eldorado" title="Eldorado" subtitle="eldorado.net" existing={eldorado} shippingOptions={eldShippingOptions}
               faq={supplierFAQ.eldorado}
               fields={[
-                { name: "key", label: "API Key", type: "password", placeholder: "Your store-specific key (IP-locked)" },
                 { name: "accountId", label: "Account ID", type: "text", placeholder: "e.g. 1234A" },
+                { name: "sftpHost", label: "SFTP Host / IP", type: "text", placeholder: "52.27.75.88" },
                 { name: "sftpUsername", label: "SFTP Username", type: "text" },
                 { name: "sftpPassword", label: "SFTP Password", type: "password" },
+                { name: "remoteFeedPath", label: "Remote Feed Path", type: "text", placeholder: "/feeds/product_feed.tsv" },
               ]}
             />
             <SupplierSection supplier="nalpac" title="Nalpac" subtitle="nalpac.com" existing={nalpac} shippingOptions={nalpacShippingOptions}
@@ -263,14 +252,6 @@ export default function SettingsPage() {
               fields={[
                 { name: "username", label: "Username", type: "text" },
                 { name: "password", label: "Password", type: "password" },
-              ]}
-            />
-            <SupplierSection supplier="ecn" title="East Coast News" subtitle="ecnwholesale.com" existing={ecn} shippingOptions={[]}
-              faq={supplierFAQ.ecn}
-              fields={[
-                { name: "username", label: "Username", type: "text" },
-                { name: "password", label: "Password", type: "password" },
-                { name: "accountId", label: "Account ID", type: "text" },
               ]}
             />
           </div>
@@ -357,6 +338,8 @@ function SupplierSection({
   faq: { question: string; answer: string }[];
 }) {
   const submit = useSubmit();
+  const testFetcher = useFetcher();
+
   const [values, setValues] = useState<Record<string, string>>(
     existing
       ? Object.fromEntries(fields.map((f) => [f.name, existing[f.name] || ""]))
@@ -365,8 +348,20 @@ function SupplierSection({
   const [shippingCode, setShippingCode] = useState(existing?.defaultShippingCode || "");
   const [testResult, setTestResult] = useState<{ success: boolean; message?: string } | null>(null);
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
   const [faqOpen, setFaqOpen] = useState(false);
+
+  const testing = testFetcher.state !== "idle";
+
+  // React to test result from the server
+  useEffect(() => {
+    if (testFetcher.state === "idle" && testFetcher.data) {
+      const data = testFetcher.data as any;
+      setTestResult({
+        success: !!data.valid,
+        message: data.valid ? "Connection successful!" : data.error || "Test failed",
+      });
+    }
+  }, [testFetcher.state, testFetcher.data]);
 
   const handleSave = () => {
     setSaving(true);
@@ -377,25 +372,14 @@ function SupplierSection({
     formData.append("defaultShippingCode", shippingCode);
     fields.forEach((f) => formData.append(f.name, values[f.name] || ""));
     submit(formData, { method: "POST" });
-    setSaving(false);
   };
 
-  const handleTest = async () => {
-    setTesting(true);
+  const handleTest = () => {
     setTestResult(null);
-    try {
-      const formData = new FormData();
-      formData.append("intent", "test_credentials");
-      formData.append("supplier", supplier);
-      const url = window.location.href.split("?")[0] + "?_data=routes%2Fapp.settings";
-      const response = await fetch(url, { method: "POST", body: formData });
-      const data = await response.json();
-      setTestResult({ success: data.valid, message: data.valid ? "Connection successful!" : data.error || "Test failed" });
-    } catch (err) {
-      setTestResult({ success: false, message: "Test failed: " + String(err) });
-    } finally {
-      setTesting(false);
-    }
+    const formData = new FormData();
+    formData.append("intent", "test_credentials");
+    formData.append("supplier", supplier);
+    testFetcher.submit(formData, { method: "POST" });
   };
 
   return (
