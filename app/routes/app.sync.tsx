@@ -2,7 +2,7 @@
  * IntimaSync - Manual Sync Trigger
  */
 import { json, type ActionFunctionArgs, type LoaderFunctionArgs } from "@remix-run/node";
-import { useLoaderData, useSubmit, useFetcher } from "@remix-run/react";
+import { useLoaderData, useSubmit, useFetcher, useEffect, useState } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -103,20 +103,29 @@ export async function action({ request }: ActionFunctionArgs) {
 export default function SyncPage() {
   const { logs, dbError } = useLoaderData<typeof loader>();
   const fetcher = useFetcher();
-  const isRunning = fetcher.state === "submitting";
+  const [activeIntent, setActiveIntent] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (fetcher.state === "idle") setActiveIntent(null);
+  }, [fetcher.state]);
 
   const triggerSync = (intent: string, supplier?: string) => {
+    const key = intent + (supplier || "");
+    setActiveIntent(key);
     const fd = new FormData();
     fd.append("intent", intent);
     if (supplier) fd.append("supplier", supplier);
     fetcher.submit(fd, { method: "POST" });
   };
 
+  const isBtn = (intent: string, supplier?: string) =>
+    fetcher.state === "submitting" && activeIntent === intent + (supplier || "");
+
   if (dbError) {
     return (
       <Page title="Sync History">
         <Banner tone="warning" title="Sync data unavailable">
-          <p>Sync history could not be loaded. This may be a temporary issue â please reload the page.</p>
+          <p>Sync history could not be loaded. This may be a temporary issue Ã¢ÂÂ please reload the page.</p>
         </Banner>
       </Page>
     );
@@ -158,25 +167,25 @@ export default function SyncPage() {
               <InlineStack gap="300" wrap>
                 <Button
                   variant="primary"
-                  loading={isRunning}
+                  loading={isBtn("sync_inventory")}
                   onClick={() => triggerSync("sync_inventory")}
                 >
                   Sync Inventory Now
                 </Button>
                 <Button
-                  loading={isRunning}
+                  loading={isBtn("sync_catalog", "honeysplace")}
                   onClick={() => triggerSync("sync_catalog", "honeysplace")}
                 >
                   Sync Honey&apos;s Place Catalog
                 </Button>
                 <Button
-                  loading={isRunning}
+                  loading={isBtn("sync_catalog", "nalpac")}
                   onClick={() => triggerSync("sync_catalog", "nalpac")}
                 >
                   Sync Nalpac Catalog
                 </Button>
                 <Button
-                  loading={isRunning}
+                  loading={isBtn("sync_catalog", "eldorado")}
                   onClick={() => triggerSync("sync_catalog", "eldorado")}
                 >
                   Sync Eldorado Catalog
