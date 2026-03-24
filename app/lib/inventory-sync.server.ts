@@ -11,7 +11,19 @@ import { checkQuantityBatch, getDiscounts, downloadProductFeed } from "./supplie
 import { checkInventory } from "./suppliers/nalpac.server";
 import { updateDefaultSupplier } from "./order-routing.server";
 
-// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Main sync function Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+// ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Main sync function ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
+function decodeHtml(str: string | null | undefined): string {
+  if (!str) return "";
+  return str
+    .replace(/&amp;/g, "&")
+    .replace(/&apos;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#(\d+);/g, (_: string, code: string) => String.fromCharCode(parseInt(code, 10)));
+}
+
 export async function runInventorySync(shopId: string): Promise<{
   success: boolean;
   updated: number;
@@ -50,7 +62,7 @@ export async function runInventorySync(shopId: string): Promise<{
       credMap.set(c.supplier, typeof c.credentialsEncrypted === "string" ? JSON.parse(c.credentialsEncrypted as string) : c.credentialsEncrypted);
     });
 
-    // Ã¢ÂÂÃ¢ÂÂ Honey's Place sync Ã¢ÂÂÃ¢ÂÂ
+    // ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Honey's Place sync ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
     if (credMap.has("honeysplace")) {
       const hpCreds = decryptHP(credMap.get("honeysplace")!);
       const hpSkus = matches
@@ -72,7 +84,7 @@ export async function runInventorySync(shopId: string): Promise<{
       }
     }
 
-    // Ã¢ÂÂÃ¢ÂÂ Eldorado sync Ã¢ÂÂÃ¢ÂÂ
+    // ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Eldorado sync ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
     if (credMap.has("eldorado")) {
       const eldCreds = credMap.get("eldorado");
       const eldModels = matches
@@ -114,7 +126,7 @@ export async function runInventorySync(shopId: string): Promise<{
       }
     }
 
-    // Ã¢ÂÂÃ¢ÂÂ Nalpac sync Ã¢ÂÂÃ¢ÂÂ
+    // ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Nalpac sync ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
     if (credMap.has("nalpac")) {
       const nalpacCreds = credMap.get("nalpac");
       const nalpacSkus = matches
@@ -136,14 +148,14 @@ export async function runInventorySync(shopId: string): Promise<{
       }
     }
 
-    // Ã¢ÂÂÃ¢ÂÂ Re-evaluate default suppliers based on new prices/stock Ã¢ÂÂÃ¢ÂÂ
+    // ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Re-evaluate default suppliers based on new prices/stock ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
     for (const match of matches) {
       if (match.upc) {
         await updateDefaultSupplier(shopId, match.upc).catch(() => {});
       }
     }
 
-    // Ã¢ÂÂÃ¢ÂÂ Push updated inventory to Shopify Ã¢ÂÂÃ¢ÂÂ
+    // ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Push updated inventory to Shopify ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
     await pushInventoryToShopify(shopId, matches, credMap);
 
     await completeSyncLog(log.id, matches.length, updated, errors);
@@ -159,7 +171,7 @@ export async function runInventorySync(shopId: string): Promise<{
   }
 }
 
-// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Push inventory quantities to Shopify Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+// ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Push inventory quantities to Shopify ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
 async function pushInventoryToShopify(
   shopId: string,
   matches: any[],
@@ -249,7 +261,7 @@ async function completeSyncLog(
   });
 }
 
-// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Product catalog sync (full import from supplier feeds) Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+// ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Product catalog sync (full import from supplier feeds) ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
 // FIX: Unified upsert loop for all three suppliers so HP and Nalpac titles,
 // images, and descriptions are actually saved to the database, and
 // attemptUpcMatch is called for all suppliers so ProductMatch.honeysplaceSku
@@ -276,7 +288,7 @@ export async function syncProductCatalog(
   });
 
   try {
-    // Normalized product shape Ã¢ÂÂ same interface for all three suppliers
+    // Normalized product shape ÃÂ¢ÃÂÃÂ same interface for all three suppliers
     interface SyncProduct {
       sku: string;
       upc: string | null;
@@ -292,7 +304,7 @@ export async function syncProductCatalog(
 
     let products: SyncProduct[] = [];
 
-    // Ã¢ÂÂÃ¢ÂÂ Fetch from supplier Ã¢ÂÂÃ¢ÂÂ
+    // ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Fetch from supplier ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
     if (supplier === "honeysplace") {
       const { fetchProductFeed, buildFeedUrl } = await import(
         "./suppliers/honeysplace.server"
@@ -302,10 +314,10 @@ export async function syncProductCatalog(
       products = raw.map((p) => ({
         sku: p.sku,
         upc: p.upc || null,
-        title: p.title,
-        description: p.description || null,
-        cost: p.cost || null,
-        msrp: p.msrp || null,
+        title: decodeHtml(p.title),
+        description: decodeHtml(p.description) || null,
+        cost: p.cost ? parseFloat(String(p.cost)) || null : null,
+        msrp: p.msrp ? parseFloat(String(p.msrp)) || null : null,
         inventoryQty: p.inventoryQty ?? 0,
         category: p.category || null,
         manufacturer: p.manufacturer || null,
@@ -321,10 +333,10 @@ export async function syncProductCatalog(
           products.push({
             sku: p.sku,
             upc: p.upc || null,
-            title: p.title,
-            description: p.description || null,
-            cost: p.cost || null,
-            msrp: p.msrp || null,
+            title: decodeHtml(p.title),
+            description: decodeHtml(p.description) || null,
+            cost: p.cost ? parseFloat(String(p.cost)) || null : null,
+            msrp: p.msrp ? parseFloat(String(p.msrp)) || null : null,
             inventoryQty: p.inventoryQty ?? 0,
             category: p.category || null,
             manufacturer: p.manufacturer || null,
@@ -340,10 +352,10 @@ export async function syncProductCatalog(
       products = eldoProducts.map((p: any) => ({
         sku: p.model,
         upc: p.upc || null,
-        title: p.name,
-        description: p.description || null,
-        cost: p.price || null,
-        msrp: p.msrp || null,
+        title: decodeHtml(p.name),
+        description: decodeHtml(p.description) || null,
+        cost: p.price ? parseFloat(String(p.price)) || null : null,
+        msrp: p.msrp ? parseFloat(String(p.msrp)) || null : null,
         inventoryQty: p.quantity ?? 0,
         category: p.category || null,
         manufacturer: p.manufacturer || null,
@@ -351,7 +363,7 @@ export async function syncProductCatalog(
       }));
     }
 
-    // Ã¢ÂÂÃ¢ÂÂ Unified upsert for all suppliers Ã¢ÂÂÃ¢ÂÂ
+    // ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Unified upsert for all suppliers ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
     for (const product of products) {
       try {
         const existing = await prisma.supplierProduct.findFirst({
@@ -362,8 +374,8 @@ export async function syncProductCatalog(
           upc: product.upc || null,
           title: product.title,
           description: product.description || null,
-          msrp: product.msrp || null,
-          cost: product.cost || null,
+          msrp: product.msrp != null ? parseFloat(String(product.msrp)) || null : null,
+          cost: product.cost != null ? parseFloat(String(product.cost)) || null : null,
           inventoryQty: product.inventoryQty || 0,
           category: product.category || null,
           manufacturer: product.manufacturer || null,
@@ -413,7 +425,7 @@ export async function syncProductCatalog(
   }
 }
 
-// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ UPC-based cross-supplier matching Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+// ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ UPC-based cross-supplier matching ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
 async function attemptUpcMatch(
   shopId: string,
   upc: string,
