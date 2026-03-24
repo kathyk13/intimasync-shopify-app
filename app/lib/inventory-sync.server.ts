@@ -5,15 +5,13 @@
  * for products already imported into the Shopify store.
  * Runs daily (via Render cron) or on-demand.
  */
-
 import prisma from "../db.server";
 import { decryptCredentials as decryptHP, checkStockBatch } from "./suppliers/honeysplace.server";
 import { checkQuantityBatch, getDiscounts, downloadProductFeed } from "./suppliers/eldorado.server";
 import { checkInventory } from "./suppliers/nalpac.server";
 import { updateDefaultSupplier } from "./order-routing.server";
 
-// ─── Main sync function ───
-
+// âââ Main sync function âââ
 export async function runInventorySync(shopId: string): Promise<{
   success: boolean;
   updated: number;
@@ -52,13 +50,12 @@ export async function runInventorySync(shopId: string): Promise<{
       credMap.set(c.supplier, JSON.parse(c.credentialsEncrypted));
     });
 
-    // ── Honey's Place sync ──
+    // ââ Honey's Place sync ââ
     if (credMap.has("honeysplace")) {
       const hpCreds = decryptHP(credMap.get("honeysplace")!);
       const hpSkus = matches
         .filter((m) => m.honeysplaceSku)
         .map((m) => m.honeysplaceSku!);
-
       if (hpSkus.length > 0) {
         try {
           const stockMap = await checkStockBatch(hpCreds, hpSkus);
@@ -75,17 +72,15 @@ export async function runInventorySync(shopId: string): Promise<{
       }
     }
 
-    // ── Eldorado sync ──
+    // ââ Eldorado sync ââ
     if (credMap.has("eldorado")) {
       const eldCreds = credMap.get("eldorado");
       const eldModels = matches
         .filter((m) => m.eldoradoSku)
         .map((m) => m.eldoradoSku!);
-
       if (eldModels.length > 0) {
         try {
           const qtyMap = await checkQuantityBatch(eldCreds, eldModels);
-
           // Also fetch discount information
           let discounts = new Map<string, number>();
           try {
@@ -93,7 +88,6 @@ export async function runInventorySync(shopId: string): Promise<{
           } catch (_) {
             // Discounts are optional
           }
-
           for (const [model, qty] of qtyMap) {
             const discountPct = discounts.get(model) || 0;
             const product = await prisma.supplierProduct.findFirst({
@@ -120,13 +114,12 @@ export async function runInventorySync(shopId: string): Promise<{
       }
     }
 
-    // ── Nalpac sync ──
+    // ââ Nalpac sync ââ
     if (credMap.has("nalpac")) {
       const nalpacCreds = credMap.get("nalpac");
       const nalpacSkus = matches
         .filter((m) => m.nalpacSku)
         .map((m) => m.nalpacSku!);
-
       if (nalpacSkus.length > 0) {
         try {
           const stockMap = await checkInventory(nalpacCreds, nalpacSkus);
@@ -143,14 +136,14 @@ export async function runInventorySync(shopId: string): Promise<{
       }
     }
 
-    // ── Re-evaluate default suppliers based on new prices/stock ──
+    // ââ Re-evaluate default suppliers based on new prices/stock ââ
     for (const match of matches) {
       if (match.upc) {
         await updateDefaultSupplier(shopId, match.upc).catch(() => {});
       }
     }
 
-    // ── Push updated inventory to Shopify ──
+    // ââ Push updated inventory to Shopify ââ
     await pushInventoryToShopify(shopId, matches, credMap);
 
     await completeSyncLog(log.id, matches.length, updated, errors);
@@ -166,8 +159,7 @@ export async function runInventorySync(shopId: string): Promise<{
   }
 }
 
-// ─── Push inventory quantities to Shopify ───
-
+// âââ Push inventory quantities to Shopify âââ
 async function pushInventoryToShopify(
   shopId: string,
   matches: any[],
@@ -197,7 +189,10 @@ async function pushInventoryToShopify(
 
     // Update Shopify inventory via Admin API
     try {
-      const variantId = match.shopifyVariantId.replace("gid://shopify/ProductVariant/", "");
+      const variantId = match.shopifyVariantId.replace(
+        "gid://shopify/ProductVariant/",
+        ""
+      );
       const response = await fetch(
         `https://${shop.shopifyDomain}/admin/api/2024-10/variants/${variantId}.json`,
         {
@@ -215,15 +210,18 @@ async function pushInventoryToShopify(
           }),
         }
       );
-
       if (!response.ok && response.status !== 429) {
-        console.error(`Failed to update Shopify variant ${variantId}: ${response.status}`);
+        console.error(
+          `Failed to update Shopify variant ${variantId}: ${response.status}`
+        );
       }
-
       // Rate limit handling
       await new Promise((r) => setTimeout(r, 250));
     } catch (err) {
-      console.error(`Error updating Shopify inventory for variant ${match.shopifyVariantId}:`, err);
+      console.error(
+        `Error updating Shopify inventory for variant ${match.shopifyVariantId}:`,
+        err
+      );
     }
   }
 }
@@ -237,7 +235,12 @@ async function completeSyncLog(
   await prisma.syncLog.update({
     where: { id: logId },
     data: {
-      status: errors.length === 0 ? "success" : errors.length < processed / 2 ? "partial" : "failed",
+      status:
+        errors.length === 0
+          ? "success"
+          : errors.length < processed / 2
+          ? "partial"
+          : "failed",
       completedAt: new Date(),
       recordsProcessed: processed,
       recordsUpdated: updated,
@@ -246,8 +249,11 @@ async function completeSyncLog(
   });
 }
 
-// ─── Product catalog sync (full import from supplier feeds) ───
-
+// âââ Product catalog sync (full import from supplier feeds) âââ
+// FIX: Unified upsert loop for all three suppliers so HP and Nalpac titles,
+// images, and descriptions are actually saved to the database, and
+// attemptUpcMatch is called for all suppliers so ProductMatch.honeysplaceSku
+// and ProductMatch.nalpacSku get populated.
 export async function syncProductCatalog(
   shopId: string,
   supplier: "honeysplace" | "eldorado" | "nalpac"
@@ -270,38 +276,82 @@ export async function syncProductCatalog(
   });
 
   try {
-    let products: any[] = [];
+    // Normalized product shape â same interface for all three suppliers
+    interface SyncProduct {
+      sku: string;
+      upc: string | null;
+      title: string;
+      description: string | null;
+      cost: number | null;
+      msrp: number | null;
+      inventoryQty: number;
+      category: string | null;
+      manufacturer: string | null;
+      images: string[];
+    }
 
+    let products: SyncProduct[] = [];
+
+    // ââ Fetch from supplier ââ
     if (supplier === "honeysplace") {
-      const { fetchProductFeed, buildFeedUrl } = await import("./suppliers/honeysplace.server");
+      const { fetchProductFeed, buildFeedUrl } = await import(
+        "./suppliers/honeysplace.server"
+      );
       const feedUrl = buildFeedUrl(creds);
-      products = await fetchProductFeed(feedUrl);
+      const raw = await fetchProductFeed(feedUrl);
+      products = raw.map((p) => ({
+        sku: p.sku,
+        upc: p.upc || null,
+        title: p.title,
+        description: p.description || null,
+        cost: p.cost || null,
+        msrp: p.msrp || null,
+        inventoryQty: p.inventoryQty ?? 0,
+        category: p.category || null,
+        manufacturer: p.manufacturer || null,
+        images: p.images || [],
+      }));
     } else if (supplier === "nalpac") {
       const { fetchProducts } = await import("./suppliers/nalpac.server");
-      // Fetch all pages
       let page = 1;
       let hasMore = true;
       while (hasMore) {
         const batch = await fetchProducts(creds, page, 500);
-        products.push(...batch);
+        for (const p of batch) {
+          products.push({
+            sku: p.sku,
+            upc: p.upc || null,
+            title: p.title,
+            description: p.description || null,
+            cost: p.cost || null,
+            msrp: p.msrp || null,
+            inventoryQty: p.inventoryQty ?? 0,
+            category: p.category || null,
+            manufacturer: p.manufacturer || null,
+            images: p.images || [],
+          });
+        }
         hasMore = batch.length === 500;
         page++;
         await new Promise((r) => setTimeout(r, 500));
       }
-    }
     } else if (supplier === "eldorado") {
       const eldoProducts = await downloadProductFeed(creds);
-      products = eldoProducts.map((p) => ({
+      products = eldoProducts.map((p: any) => ({
         sku: p.model,
-        title: p.name,
         upc: p.upc || null,
-        cost: p.price,
-        inventoryQty: p.quantity,
+        title: p.name,
         description: p.description || null,
+        cost: p.price || null,
         msrp: p.msrp || null,
+        inventoryQty: p.quantity ?? 0,
+        category: p.category || null,
+        manufacturer: p.manufacturer || null,
         images: p.images || [],
       }));
+    }
 
+    // ââ Unified upsert for all suppliers ââ
     for (const product of products) {
       try {
         const existing = await prisma.supplierProduct.findFirst({
@@ -317,13 +367,19 @@ export async function syncProductCatalog(
           inventoryQty: product.inventoryQty || 0,
           category: product.category || null,
           manufacturer: product.manufacturer || null,
-          imagesJson: product.images?.length > 0 ? JSON.stringify(product.images) : null,
+          imagesJson:
+            product.images?.length > 0
+              ? JSON.stringify(product.images)
+              : null,
           isActive: true,
           lastSyncedAt: new Date(),
         };
 
         if (existing) {
-          await prisma.supplierProduct.update({ where: { id: existing.id }, data });
+          await prisma.supplierProduct.update({
+            where: { id: existing.id },
+            data,
+          });
           updated++;
         } else {
           await prisma.supplierProduct.create({
@@ -332,7 +388,7 @@ export async function syncProductCatalog(
           added++;
         }
 
-        // Auto-match by UPC if possible
+        // Auto-match by UPC across all suppliers (was previously Eldorado-only)
         if (product.upc) {
           await attemptUpcMatch(shopId, product.upc, supplier, product.sku);
         }
@@ -347,14 +403,17 @@ export async function syncProductCatalog(
     errors.push(String(err));
     await prisma.syncLog.update({
       where: { id: log.id },
-      data: { status: "failed", completedAt: new Date(), errorsJson: JSON.stringify(errors) },
+      data: {
+        status: "failed",
+        completedAt: new Date(),
+        errorsJson: JSON.stringify(errors),
+      },
     });
     return { added, updated, errors };
   }
 }
 
-// ─── UPC-based cross-supplier matching ───
-
+// âââ UPC-based cross-supplier matching âââ
 async function attemptUpcMatch(
   shopId: string,
   upc: string,
@@ -365,7 +424,10 @@ async function attemptUpcMatch(
     where: { shopId, upc },
   });
 
-  const skuField = `${supplier}Sku` as "eldoradoSku" | "honeysplaceSku" | "nalpacSku";
+  const skuField = `${supplier}Sku` as
+    | "eldoradoSku"
+    | "honeysplaceSku"
+    | "nalpacSku";
 
   if (existing) {
     // Update the matching SKU for this supplier
