@@ -38,6 +38,7 @@ export default function App() {
             <a href="/app/products/favorites">Favorites</a>
             <a href="/app/products/linked">Linked Products</a>
             <a href="/app/orders">Orders</a>
+            <a href="/app/sync">Sync</a>
             <a href="/app/settings">Settings</a>
             <a href="/app/billing">Billing</a>
             <a href="/app/support">Support</a>
