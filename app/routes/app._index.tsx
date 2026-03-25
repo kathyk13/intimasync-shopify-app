@@ -66,10 +66,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
     const supplierGroups = await prisma.supplierProduct.groupBy({
       by: ["supplier"],
       where: { shopId: shop.id },
-      _count: true,
+      _count: { _all: true },
     });
     supplierGroups.forEach((g) => {
-      supplierCounts[g.supplier] = g._count;
+      supplierCounts[g.supplier] = g._count._all;
     });
   } catch (err) {
     console.error("Dashboard loader error:", err);

@@ -3,7 +3,7 @@
  * Spreadsheet + thumbnail views, search, category filter, per-page selector
  */
 
-import React, { useState, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { json, type LoaderFunctionArgs, type ActionFunctionArgs } from "@remix-run/node";
 import { useLoaderData, useSubmit, useFetcher, Link, useNavigate } from "@remix-run/react";
 import {
@@ -16,7 +16,6 @@ import {
   Button,
   ButtonGroup,
   Pagination,
-  Thumbnail,
   Icon,
   Tooltip,
   InlineStack,
@@ -38,7 +37,7 @@ const PLACEHOLDER_IMG =
 
 /** Image with broken-URL fallback to placeholder */
 function SafeThumbnail({ src, alt, size }: { src: string | null; alt: string; size: "small" | "large" }) {
-  const [imgSrc, setImgSrc] = React.useState(src || PLACEHOLDER_IMG);
+  const [imgSrc, setImgSrc] = useState(src || PLACEHOLDER_IMG);
   const px = size === "large" ? 120 : 40;
   return (
     <img
