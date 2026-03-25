@@ -121,7 +121,15 @@ export async function runInventorySync(shopId: string): Promise<{
             }
           }
         } catch (err) {
-          errors.push(`Eldorado sync error: ${err}`);
+          const errMsg = String(err);
+          // "No inventory CSV" is expected for new accounts - Eldorado generates
+          // these files on a schedule. Treat as a warning, not a hard failure.
+          if (errMsg.includes("No inventory CSV")) {
+            console.warn(`[inventory-sync] Eldorado: ${errMsg} (this is normal for new accounts)`);
+            errors.push(`Eldorado: inventory files not yet available (new account - check back in 24-48h)`);
+          } else {
+            errors.push(`Eldorado sync error: ${err}`);
+          }
         }
       }
     }
@@ -244,15 +252,23 @@ async function completeSyncLog(
   updated: number,
   errors: string[]
 ) {
+  // Determine status: if we updated anything, it's at least partial success
+  let status: string;
+  if (errors.length === 0) {
+    status = "success";
+  } else if (updated > 0) {
+    // Some items were updated despite errors (e.g. one supplier failed but others worked)
+    status = "partial";
+  } else if (processed === 0 && errors.length > 0) {
+    status = "failed";
+  } else {
+    status = "failed";
+  }
+
   await prisma.syncLog.update({
     where: { id: logId },
     data: {
-      status:
-        errors.length === 0
-          ? "success"
-          : errors.length < processed / 2
-          ? "partial"
-          : "failed",
+      status,
       completedAt: new Date(),
       recordsProcessed: processed,
       recordsUpdated: updated,
@@ -283,10 +299,11 @@ export async function syncProductCatalog(
 
   const creds = typeof credential.credentialsEncrypted === "string" ? JSON.parse(credential.credentialsEncrypted as string) : credential.credentialsEncrypted;
 
-  // Clean up any stale "running" logs for this supplier (older than 5 min)
-  const fiveMinAgo = new Date(Date.now() - 5 * 60_000);
+  // Clean up ALL stale "running" logs (any supplier) older than 10 min
+  // This catches logs from before the fire-and-forget fix that got stuck
+  const tenMinAgo = new Date(Date.now() - 10 * 60_000);
   await prisma.syncLog.updateMany({
-    where: { shopId, supplier, status: "running", startedAt: { lt: fiveMinAgo } },
+    where: { shopId, status: "running", startedAt: { lt: tenMinAgo } },
     data: { status: "failed", completedAt: new Date(), errorsJson: JSON.stringify(["Timed out or crashed"]) },
   });
 
