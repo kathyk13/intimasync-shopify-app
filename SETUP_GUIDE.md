@@ -136,7 +136,7 @@ This guide walks you through everything from zero to a live, testable IntimaSync
 2. **Honey's Place:**
    - Account Number: (from your Honey's Place account)
    - API Token: (from My Account > Data Integration > API Setup)
-   - Feed Token: `6NljialIvkj90IL73pAu88s7` (from your data feed URL)
+   - Feed Token: (from your data feed URL - find in My Account > Data Integration > Data Feeds)
    - Default Shipping: Best Rate (RTSHOP)
    - Click "Save Credentials"
    - Click "Test Connection" to verify

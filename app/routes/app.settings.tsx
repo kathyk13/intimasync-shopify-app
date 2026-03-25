@@ -30,7 +30,7 @@ import { SHIPPING_CODES as HP_SHIPPING } from "../lib/suppliers/honeysplace.serv
 import { SHIPPING_CODES as ELD_SHIPPING } from "../lib/suppliers/eldorado.server";
 import { SHIPPING_METHODS as NALPAC_SHIPPING } from "../lib/suppliers/nalpac.server";
 
-// âââ Loader âââ
+// --- Loader ---
 export async function loader({ request }: LoaderFunctionArgs) {
   const { session } = await authenticate.admin(request);
   const shop = await prisma.shop.findUnique({ where: { shopifyDomain: session.shop } });
@@ -69,7 +69,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   });
 }
 
-// âââ Action âââ
+// --- Action ---
 export async function action({ request }: ActionFunctionArgs) {
   const { session } = await authenticate.admin(request);
   const shop = await prisma.shop.findUnique({ where: { shopifyDomain: session.shop } });
@@ -149,7 +149,7 @@ const supplierLabels: Record<string, string> = {
   nalpac: "Nalpac",
 };
 
-// âââ FAQ content per supplier âââ
+// --- FAQ content per supplier ---
 const supplierFAQ: Record<string, { question: string; answer: string }[]> = {
   honeysplace: [
     {
@@ -175,8 +175,8 @@ const supplierFAQ: Record<string, { question: string; answer: string }[]> = {
       answer: "Eldorado emails SFTP credentials when your CIPP dropship account is set up. Look for an email with 'Host: sftp://52.27.75.88' and your username/password. Contact your account rep if you have not received them.",
     },
     {
-      question: "What goes in Remote Feed Path?",
-      answer: "Leave blank to use the default '/feeds/product_feed.tsv'. Note: Eldorado says SFTP folders can take up to 24 hours to generate after initial account setup.",
+      question: "When will my product feed be available?",
+      answer: "Eldorado says SFTP folders can take up to 24-48 hours to generate after initial CIPP account setup. The product feed is automatically fetched from /feeds/product_feed.tsv.",
     },
   ],
   nalpac: [
@@ -187,7 +187,7 @@ const supplierFAQ: Record<string, { question: string; answer: string }[]> = {
   ],
 };
 
-// âââ Component âââ
+// --- Component ---
 export default function SettingsPage() {
   const {
     eldorado, honeysplace, nalpac,
@@ -197,16 +197,27 @@ export default function SettingsPage() {
   } = useLoaderData<typeof loader>();
 
   const submit = useSubmit();
+  const priorityFetcher = useFetcher();
   const [priority, setPriority] = useState<string[]>(fulfillmentPriority);
   const [threshold, setThreshold] = useState(String(consolidationThreshold));
   const dragSrc = useRef<number | null>(null);
+  const [prioritySaved, setPrioritySaved] = useState(false);
+
+  // Track save result
+  useEffect(() => {
+    if (priorityFetcher.state === "idle" && priorityFetcher.data) {
+      const data = priorityFetcher.data as any;
+      if (data.success) setPrioritySaved(true);
+    }
+  }, [priorityFetcher.state, priorityFetcher.data]);
 
   const savePriority = () => {
+    setPrioritySaved(false);
     const formData = new FormData();
     formData.append("intent", "save_fulfillment_priority");
     formData.append("priority", JSON.stringify(priority));
     formData.append("threshold", threshold);
-    submit(formData, { method: "POST" });
+    priorityFetcher.submit(formData, { method: "POST" });
   };
 
   // Drag-and-drop handlers
@@ -244,7 +255,6 @@ export default function SettingsPage() {
                 { name: "sftpHost", label: "SFTP Host / IP", type: "text", placeholder: "52.27.75.88" },
                 { name: "sftpUsername", label: "SFTP Username", type: "text" },
                 { name: "sftpPassword", label: "SFTP Password", type: "password" },
-                { name: "remoteFeedPath", label: "Remote Feed Path", type: "text", placeholder: "/feeds/product_feed.tsv" },
               ]}
             />
             <SupplierSection supplier="nalpac" title="Nalpac" subtitle="nalpac.com" existing={nalpac} shippingOptions={nalpacShippingOptions}
@@ -291,7 +301,7 @@ export default function SettingsPage() {
                       }}
                     >
                       {/* Drag handle */}
-                      <span style={{ color: "#8c9196", fontSize: "18px", lineHeight: 1, cursor: "grab" }}>â ¿</span>
+                      <span style={{ color: "#8c9196", fontSize: "18px", lineHeight: 1, cursor: "grab" }}>{"\u2630"}</span>
                       <Text as="span" variant="bodySm" tone="subdued">{i + 1}.</Text>
                       <Text as="span" fontWeight="semibold">{supplierLabels[sup] || sup}</Text>
                     </div>
@@ -315,7 +325,13 @@ export default function SettingsPage() {
                   />
                 </BlockStack>
 
-                <Button variant="primary" onClick={savePriority}>Save Fulfillment Settings</Button>
+                {prioritySaved && (
+                  <Banner tone="success">
+                    Fulfillment settings saved.
+                  </Banner>
+                )}
+
+                <Button variant="primary" onClick={savePriority} loading={priorityFetcher.state !== "idle"}>Save Fulfillment Settings</Button>
               </BlockStack>
             </Card>
           </div>
@@ -325,7 +341,7 @@ export default function SettingsPage() {
   );
 }
 
-// âââ Supplier Section (always open, flex height) âââ
+// --- Supplier Section (always open, flex height) ---
 function SupplierSection({
   supplier, title, subtitle, existing, fields, shippingOptions, faq,
 }: {

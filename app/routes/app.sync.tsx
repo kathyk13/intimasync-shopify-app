@@ -190,6 +190,37 @@ export default function SyncPage() {
                   Sync Eldorado Catalog
                 </Button>
               </InlineStack>
+              <BlockStack gap="100">
+                <Text as="p" variant="bodySm" tone="subdued">
+                  Estimated sync times: Inventory 1-3 min | Honey&apos;s Place catalog 5-10 min | Nalpac catalog 15-30 min (~19K products) | Eldorado catalog 5-15 min
+                </Text>
+                <Text as="p" variant="bodySm" tone="subdued">
+                  Tip: Honey&apos;s Place supports category/manufacturer filtering in their data feed portal, which can reduce feed size and sync time.
+                </Text>
+              </BlockStack>
+            </BlockStack>
+          </Card>
+        </Layout.Section>
+
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="400">
+              <Text as="h2" variant="headingMd">
+                Automatic Sync
+              </Text>
+              <div style={{ opacity: 0.5, pointerEvents: "none" }}>
+                <BlockStack gap="200">
+                  <Text as="p" tone="subdued" variant="bodySm">
+                    Daily inventory sync runs automatically at 3:00 AM EST to keep stock levels and pricing current.
+                  </Text>
+                  <InlineStack gap="200" blockAlign="center">
+                    <Badge tone="info">Pro Feature</Badge>
+                    <Text as="span" variant="bodySm" tone="subdued">
+                      Automatic daily sync is available on the Pro plan.
+                    </Text>
+                  </InlineStack>
+                </BlockStack>
+              </div>
             </BlockStack>
           </Card>
         </Layout.Section>

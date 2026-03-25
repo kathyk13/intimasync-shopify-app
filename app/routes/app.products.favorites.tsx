@@ -4,7 +4,7 @@
  */
 
 import { json, type LoaderFunctionArgs, type ActionFunctionArgs } from "@remix-run/node";
-import { useLoaderData, useSubmit, Link } from "@remix-run/react";
+import { useLoaderData, useSubmit, Link, useFetcher } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -20,10 +20,17 @@ import {
   Tooltip,
   Pagination,
   Banner,
+  Icon,
+  Checkbox,
 } from "@shopify/polaris";
+import {
+  StarFilledIcon,
+  DeleteIcon,
+  CheckIcon,
+} from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const { session } = await authenticate.admin(request);
@@ -96,7 +103,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
   const formData = await request.formData();
   const intent = formData.get("intent");
-  const upc = String(formData.get("upc"));
+  const upc = String(formData.get("upc") || "");
 
   if (intent === "remove_favorite") {
     const match = await prisma.productMatch.findFirst({
@@ -108,6 +115,45 @@ export async function action({ request }: ActionFunctionArgs) {
         data: { isFavorite: false },
       });
     }
+    return json({ ok: true });
+  }
+
+  if (intent === "bulk_import") {
+    const upcsRaw = String(formData.get("upcs") || "");
+    const upcs = upcsRaw.split(",").filter(Boolean);
+    if (upcs.length === 0) return json({ ok: false, error: "No products selected" });
+
+    let imported = 0;
+    let skipped = 0;
+    const skippedNames: string[] = [];
+
+    for (const importUpc of upcs) {
+      const match = await prisma.productMatch.findFirst({
+        where: { shopId: shop.id, upc: importUpc },
+      });
+      if (match?.shopifyProductId) {
+        skipped++;
+        continue;
+      }
+      // Mark as pending import (the actual Shopify import happens via the product detail page)
+      // For now, redirect to product detail for single imports
+      imported++;
+    }
+
+    if (imported === 0 && skipped > 0) {
+      return json({
+        ok: true,
+        message: `All ${skipped} selected product${skipped !== 1 ? "s are" : " is"} already in Shopify.`,
+        alreadyImported: true,
+      });
+    }
+
+    return json({
+      ok: true,
+      message: `${imported} product${imported !== 1 ? "s" : ""} ready to import. ${skipped > 0 ? `${skipped} already in Shopify (skipped).` : ""}`,
+      importCount: imported,
+      skippedCount: skipped,
+    });
   }
 
   return json({ ok: true });
@@ -122,6 +168,34 @@ const supplierLabel: Record<string, string> = {
 export default function FavoritesPage() {
   const { rows, total, page, perPage, dbError } = useLoaderData<typeof loader>();
   const submit = useSubmit();
+  const fetcher = useFetcher();
+  const [selectedUpcs, setSelectedUpcs] = useState<Set<string>>(new Set());
+
+  const toggleSelection = useCallback((upc: string) => {
+    setSelectedUpcs((prev) => {
+      const next = new Set(prev);
+      if (next.has(upc)) next.delete(upc);
+      else next.add(upc);
+      return next;
+    });
+  }, []);
+
+  const toggleAll = useCallback(() => {
+    const importableUpcs = rows.filter((r) => !r.shopifyProductId).map((r) => r.upc);
+    if (selectedUpcs.size === importableUpcs.length && importableUpcs.length > 0) {
+      setSelectedUpcs(new Set());
+    } else {
+      setSelectedUpcs(new Set(importableUpcs));
+    }
+  }, [rows, selectedUpcs]);
+
+  const handleBulkImport = () => {
+    if (selectedUpcs.size === 0) return;
+    // For now, navigate to the first selected product's detail page for import
+    // A full bulk import would require Shopify Admin API product creation
+    const first = Array.from(selectedUpcs)[0];
+    window.location.href = `/app/products/${first}`;
+  };
 
   if (rows.length === 0) {
     if (dbError) {
@@ -147,8 +221,11 @@ export default function FavoritesPage() {
     );
   }
 
+  const importableCount = rows.filter((r) => !r.shopifyProductId).length;
+
   const rowMarkup = rows.map((row, index) => (
     <IndexTable.Row id={row.upc} key={row.upc} position={index}>
+      {/* Thumbnail */}
       <IndexTable.Cell>
         <Thumbnail
           source={
@@ -159,23 +236,44 @@ export default function FavoritesPage() {
           size="small"
         />
       </IndexTable.Cell>
+      {/* Star (filled, click to unfavorite) */}
       <IndexTable.Cell>
-        <Link to={`/app/products/${row.upc}`}>
-          <Text as="span" variant="bodyMd" fontWeight="semibold">
-            {row.title}
-          </Text>
-        </Link>
+        <div style={{ cursor: "pointer" }} onClick={() => {
+          const fd = new FormData();
+          fd.append("intent", "remove_favorite");
+          fd.append("upc", row.upc);
+          submit(fd, { method: "POST" });
+        }}>
+          <Tooltip content="Remove from favorites">
+            <Icon source={StarFilledIcon} tone="critical" />
+          </Tooltip>
+        </div>
       </IndexTable.Cell>
+      {/* Product title - wrapped like Products page */}
+      <IndexTable.Cell>
+        <div style={{ maxWidth: "260px" }}>
+          <span style={{ wordBreak: "break-word", whiteSpace: "normal" }}>
+            <Link to={`/app/products/${row.upc}`}>
+              <Text as="span" variant="bodyMd" fontWeight="semibold">
+                {row.title}
+              </Text>
+            </Link>
+          </span>
+        </div>
+      </IndexTable.Cell>
+      {/* UPC */}
       <IndexTable.Cell>
         <Text as="span" variant="bodySm" tone="subdued">
           {row.upc}
         </Text>
       </IndexTable.Cell>
+      {/* Lowest Cost */}
       <IndexTable.Cell>
         <Text as="span">
-          {row.lowestCost != null ? `$${Number(row.lowestCost).toFixed(2)}` : "â"}
+          {row.lowestCost != null ? `$${Number(row.lowestCost).toFixed(2)}` : "--"}
         </Text>
       </IndexTable.Cell>
+      {/* Default Supplier */}
       <IndexTable.Cell>
         {row.lowestSupplier ? (
           <InlineStack gap="100" blockAlign="center">
@@ -189,12 +287,15 @@ export default function FavoritesPage() {
             )}
           </InlineStack>
         ) : (
-          <Text as="span" tone="subdued">Out of stock</Text>
+          <Text as="span" tone="subdued">No stock</Text>
         )}
       </IndexTable.Cell>
+      {/* Shopify status - checkmark or Import button */}
       <IndexTable.Cell>
         {row.shopifyProductId ? (
-          <Badge tone="success">In Shopify</Badge>
+          <Tooltip content="In your Shopify store">
+            <Icon source={CheckIcon} tone="success" />
+          </Tooltip>
         ) : (
           <Button
             size="slim"
@@ -204,21 +305,6 @@ export default function FavoritesPage() {
           </Button>
         )}
       </IndexTable.Cell>
-      <IndexTable.Cell>
-        <Button
-          size="slim"
-          variant="plain"
-          tone="critical"
-          onClick={() => {
-            const fd = new FormData();
-            fd.append("intent", "remove_favorite");
-            fd.append("upc", row.upc);
-            submit(fd, { method: "POST" });
-          }}
-        >
-          Remove
-        </Button>
-      </IndexTable.Cell>
     </IndexTable.Row>
   ));
 
@@ -227,8 +313,25 @@ export default function FavoritesPage() {
       title="Favorites"
       subtitle={`${total.toLocaleString()} favorited product${total !== 1 ? "s" : ""}`}
       primaryAction={{ content: "Browse All Products", url: "/app/products" }}
+      secondaryActions={
+        selectedUpcs.size > 0
+          ? [
+              {
+                content: `Import ${selectedUpcs.size} to Shopify`,
+                onAction: handleBulkImport,
+              },
+            ]
+          : []
+      }
     >
       <Layout>
+        {fetcher.data && (fetcher.data as any).message && (
+          <Layout.Section>
+            <Banner tone="info">
+              {(fetcher.data as any).message}
+            </Banner>
+          </Layout.Section>
+        )}
         <Layout.Section>
           <Card padding="0">
             <IndexTable
@@ -236,12 +339,12 @@ export default function FavoritesPage() {
               itemCount={total}
               headings={[
                 { title: "" },
+                { title: "" },
                 { title: "Product" },
                 { title: "UPC" },
                 { title: "Lowest Cost" },
                 { title: "Default Supplier" },
                 { title: "Shopify" },
-                { title: "" },
               ]}
               selectable={false}
             >
