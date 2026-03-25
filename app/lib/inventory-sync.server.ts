@@ -317,7 +317,9 @@ export async function syncProductCatalog(
         "./suppliers/honeysplace.server"
       );
       const feedUrl = buildFeedUrl(creds);
+      console.log(`[honeysplace] syncProductCatalog: fetching feed from ${feedUrl.substring(0, 60)}...`);
       const raw = await fetchProductFeed(feedUrl);
+      console.log(`[honeysplace] syncProductCatalog: received ${raw.length} products from feed`);
       products = raw.map((p) => ({
         sku: p.sku,
         upc: p.upc || null,
@@ -380,6 +382,8 @@ export async function syncProductCatalog(
     }
 
     // ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Unified upsert for all suppliers ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ
+    console.log(`[${supplier}] syncProductCatalog: upserting ${products.length} products into database...`);
+    let upsertCount = 0;
     for (const product of products) {
       try {
         const existing = await prisma.supplierProduct.findFirst({
@@ -420,8 +424,13 @@ export async function syncProductCatalog(
         if (product.upc) {
           await attemptUpcMatch(shopId, product.upc, supplier, product.sku);
         }
+        upsertCount++;
+        if (upsertCount % 1000 === 0) {
+          console.log(`[${supplier}] syncProductCatalog: upserted ${upsertCount}/${products.length}`);
+        }
       } catch (err) {
         errors.push(`SKU ${product.sku}: ${err}`);
+        upsertCount++;
       }
     }
 

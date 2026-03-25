@@ -72,11 +72,13 @@ export async function action({ request }: ActionFunctionArgs) {
   try {
     // "sync" is sent by the Products page "Sync Now" button
     if (intent === "sync_inventory" || intent === "sync") {
-      const result = await runInventorySync(shop.id);
+      // Fire-and-forget: start in background, return immediately
+      runInventorySync(shop.id).catch((err) =>
+        console.error("[sync] inventory sync crashed:", err)
+      );
       return json({
-        success: result.success,
-        updated: result.updated,
-        error: result.errors[0] || null,
+        success: true,
+        message: "Inventory sync started. Refresh this page in a few minutes to see results.",
       });
     }
 
@@ -84,15 +86,14 @@ export async function action({ request }: ActionFunctionArgs) {
       if (!CATALOG_SYNC_IDS.includes(supplier as CatalogSyncSupplierId)) {
         return json({ success: false, error: "Unknown supplier" });
       }
-      const result = await syncProductCatalog(
-        shop.id,
-        supplier as CatalogSyncSupplierId
+      // Fire-and-forget: start in background, return immediately
+      // This prevents Render/browser timeouts for large catalogs (Nalpac ~19K products)
+      syncProductCatalog(shop.id, supplier as CatalogSyncSupplierId).catch(
+        (err) => console.error(`[sync] ${supplier} catalog sync crashed:`, err)
       );
       return json({
-        success: result.errors.length === 0,
-        updated: result.added + result.updated,
-        added: result.added,
-        error: result.errors[0] || null,
+        success: true,
+        message: `${supplier} catalog sync started. Refresh this page in a few minutes to see results.`,
       });
     }
 
@@ -142,14 +143,10 @@ export default function SyncPage() {
         {fetcher.data && (
           <Layout.Section>
             <Banner
-              tone={(fetcher.data as any).success ? "success" : "critical"}
+              tone={(fetcher.data as any).success ? "info" : "critical"}
             >
               {(fetcher.data as any).success
-                ? `Sync complete. Updated ${(fetcher.data as any).updated || 0} records.${
-                    (fetcher.data as any).added != null
-                      ? ` (${(fetcher.data as any).added} new)`
-                      : ""
-                  }`
+                ? (fetcher.data as any).message || "Sync started."
                 : `Sync error: ${(fetcher.data as any).error}`}
             </Banner>
           </Layout.Section>
@@ -211,6 +208,7 @@ export default function SyncPage() {
                   "text",
                   "numeric",
                   "numeric",
+                  "text",
                 ]}
                 headings={[
                   "Supplier",
@@ -219,25 +217,44 @@ export default function SyncPage() {
                   "Started",
                   "Processed",
                   "Updated",
+                  "Errors",
                 ]}
-                rows={logs.map((l) => [
-                  l.supplier,
-                  l.syncType,
-                  <Badge
-                    tone={
-                      l.status === "success"
-                        ? "success"
-                        : l.status === "failed"
-                        ? "critical"
-                        : "attention"
+                rows={logs.map((l) => {
+                  let errorDisplay = "";
+                  if (l.errorsJson) {
+                    try {
+                      const errs = JSON.parse(l.errorsJson);
+                      errorDisplay = Array.isArray(errs)
+                        ? errs.slice(0, 3).join("; ") + (errs.length > 3 ? ` (+${errs.length - 3} more)` : "")
+                        : String(errs);
+                    } catch {
+                      errorDisplay = l.errorsJson;
                     }
-                  >
-                    {l.status}
-                  </Badge>,
-                  new Date(l.startedAt).toLocaleString(),
-                  l.recordsProcessed,
-                  l.recordsUpdated,
-                ])}
+                  }
+                  return [
+                    l.supplier,
+                    l.syncType,
+                    <Badge
+                      tone={
+                        l.status === "success"
+                          ? "success"
+                          : l.status === "failed"
+                          ? "critical"
+                          : "attention"
+                      }
+                    >
+                      {l.status}
+                    </Badge>,
+                    new Date(l.startedAt).toLocaleString(),
+                    l.recordsProcessed,
+                    l.recordsUpdated,
+                    errorDisplay ? (
+                      <Text as="span" tone="critical" variant="bodySm">
+                        {errorDisplay.length > 120 ? errorDisplay.substring(0, 120) + "..." : errorDisplay}
+                      </Text>
+                    ) : "",
+                  ];
+                })}
               />
             </BlockStack>
           </Card>
