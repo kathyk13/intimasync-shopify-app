@@ -25,6 +25,8 @@ import {
   Modal,
   TextField,
   Banner,
+  Popover,
+  ChoiceList,
 } from "@shopify/polaris";
 import { LockIcon, StarIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
@@ -54,7 +56,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const page = parseInt(url.searchParams.get("page") || "1");
   const perPage = parseInt(url.searchParams.get("perPage") || "50");
   const search = url.searchParams.get("search") || "";
-  const category = url.searchParams.get("category") || "";
+  const category = url.searchParams.get("category") || ""; // comma-separated for multi-select
   const supplierFilter = url.searchParams.get("supplier") || "";
   const inStockOnly = url.searchParams.get("inStock") === "true";
   const favoritesOnly = url.searchParams.get("favorites") === "true";
@@ -83,7 +85,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
       ];
     }
     if (category) {
-      spWhere.category = { equals: category, mode: "insensitive" };
+      const cats = category.split(",").map((c) => c.trim()).filter(Boolean);
+      if (cats.length === 1) {
+        spWhere.category = { equals: cats[0], mode: "insensitive" };
+      } else if (cats.length > 1) {
+        spWhere.category = { in: cats, mode: "insensitive" };
+      }
     }
     if (supplierFilter) {
       spWhere.supplier = supplierFilter;
@@ -240,6 +247,7 @@ export default function ProductsIndexPage() {
     category: initialCategory,
     supplierFilter: initialSupplierFilter,
     inStockOnly: initialInStockOnly,
+    favoritesOnly: initialFavoritesOnly,
     hasRunningSync,
     runningSupplier,
   } = useLoaderData<typeof loader>();
@@ -252,9 +260,13 @@ export default function ProductsIndexPage() {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"spreadsheet" | "thumbnail">("spreadsheet");
   const [searchValue, setSearchValue] = useState(initialSearch);
-  const [categoryValue, setCategoryValue] = useState(initialCategory);
+  const [categoryValues, setCategoryValues] = useState<string[]>(
+    initialCategory ? initialCategory.split(",").filter(Boolean) : []
+  );
+  const [categoryPopoverActive, setCategoryPopoverActive] = useState(false);
   const [supplierValue, setSupplierValue] = useState(initialSupplierFilter);
   const [inStockValue, setInStockValue] = useState(initialInStockOnly ? "true" : "");
+  const [favoritesValue, setFavoritesValue] = useState(initialFavoritesOnly ? "true" : "");
   const [currentPerPage, setCurrentPerPage] = useState(String(perPage));
 
   const supplierLabels: Record<string, string> = {
@@ -263,14 +275,16 @@ export default function ProductsIndexPage() {
     nalpac: "Nalpac",
   };
 
+  const categoryParam = categoryValues.join(",");
   const applyFilters = (params: Record<string, string>) => {
     const sp = new URLSearchParams({
       page: "1",
       perPage: currentPerPage,
       search: searchValue,
-      category: categoryValue,
+      category: params.category !== undefined ? params.category : categoryParam,
       supplier: supplierValue,
       inStock: inStockValue,
+      favorites: favoritesValue,
       ...params,
     });
     navigate(`/app/products?${sp.toString()}`);
@@ -284,14 +298,15 @@ export default function ProductsIndexPage() {
     applyFilters({ search: searchValue });
   };
 
-  const hasActiveFilters = !!(searchValue || categoryValue || supplierValue || inStockValue);
+  const hasActiveFilters = !!(searchValue || categoryValues.length > 0 || supplierValue || inStockValue || favoritesValue);
 
   const handleClearSearch = () => {
     setSearchValue("");
-    setCategoryValue("");
+    setCategoryValues([]);
     setSupplierValue("");
     setInStockValue("");
-    applyFilters({ search: "", category: "", supplier: "", inStock: "" });
+    setFavoritesValue("");
+    applyFilters({ search: "", category: "", supplier: "", inStock: "", favorites: "" });
   };
 
   const cheapestSupplier = (row: ProductRow): string | null => {
@@ -305,11 +320,6 @@ export default function ProductsIndexPage() {
     return options.sort((a, b) => a.c - b.c)[0].s;
   };
 
-  const noStock = (row: ProductRow): boolean => {
-    return (
-      (row.eldorado?.qty || 0) + (row.honeysplace?.qty || 0) + (row.nalpac?.qty || 0) === 0
-    );
-  };
 
   const formatCost = (
     cost: number | null | undefined,
@@ -343,17 +353,16 @@ export default function ProductsIndexPage() {
 
   const headings = [
     { title: "" },
+    { title: "" },
     { title: "Product" },
     { title: "MSRP" },
     ...(enabledSuppliers.includes("eldorado") ? [{ title: "Eldorado $" }, { title: "Eld. Qty" }] : []),
     ...(enabledSuppliers.includes("honeysplace") ? [{ title: "HP $" }, { title: "HP Qty" }] : []),
     ...(enabledSuppliers.includes("nalpac") ? [{ title: "Nalpac $" }, { title: "Nalpac Qty" }] : []),
-    { title: "Fulfillment" },
   ];
 
   const rowMarkup = rows.map((row, index) => {
     const cheapest = cheapestSupplier(row);
-    const outOfStock = noStock(row);
     const isSelected = selectedUpcs.includes(row.upc);
 
     return (
@@ -374,10 +383,26 @@ export default function ProductsIndexPage() {
           />
         </IndexTable.Cell>
         <IndexTable.Cell>
+          <div onClick={(e) => e.stopPropagation()} style={{ cursor: "pointer" }}>
+            <Tooltip content={row.isFavorite ? "Remove from favorites" : "Add to favorites"}>
+              <Button
+                variant="plain"
+                onClick={() => {
+                  const formData = new FormData();
+                  formData.append("intent", "toggle_favorite");
+                  formData.append("upc", row.upc);
+                  fetcher.submit(formData, { method: "POST" });
+                }}
+                icon={StarIcon}
+                tone={row.isFavorite ? "critical" : undefined}
+              />
+            </Tooltip>
+          </div>
+        </IndexTable.Cell>
+        <IndexTable.Cell>
           <div style={{ maxWidth: "260px" }}>
           <BlockStack gap="100">
             <InlineStack gap="200" blockAlign="start" wrap>
-              {/* Stop propagation so clicking the link doesn't also select the row */}
               <span onClick={(e) => e.stopPropagation()} style={{ wordBreak: "break-word", whiteSpace: "normal" }}>
                 <Link to={`/app/products/${row.upc}`}>
                   <Text as="span" variant="bodyMd" fontWeight="semibold">
@@ -385,17 +410,9 @@ export default function ProductsIndexPage() {
                   </Text>
                 </Link>
               </span>
-              {outOfStock && (
-                <Badge tone="attention">OOS</Badge>
-              )}
               {row.shopifyProductId && (
                 <Tooltip content="Imported to Shopify">
                   <Badge tone="success">In Shopify</Badge>
-                </Tooltip>
-              )}
-              {row.isFavorite && (
-                <Tooltip content="Favorited">
-                  <Icon source={StarIcon} tone="warning" />
                 </Tooltip>
               )}
             </InlineStack>
@@ -457,29 +474,6 @@ export default function ProductsIndexPage() {
             </Text>
           </IndexTable.Cell>
         )}
-        <IndexTable.Cell>
-          {/* Stop propagation so changing the dropdown doesn't select the row */}
-          <div onClick={(e) => e.stopPropagation()}>
-            <Select
-              label=""
-              labelHidden
-              options={[
-                { label: "Auto (Cheapest)", value: "auto" },
-                ...(row.eldorado ? [{ label: "Eldorado", value: "eldorado" }] : []),
-                ...(row.honeysplace ? [{ label: "Honey's Place", value: "honeysplace" }] : []),
-                ...(row.nalpac ? [{ label: "Nalpac", value: "nalpac" }] : []),
-              ]}
-              value={row.lockedSupplier || "auto"}
-              onChange={(value) => {
-                const formData = new FormData();
-                formData.append("intent", "lock_supplier");
-                formData.append("upc", row.upc);
-                formData.append("supplier", value);
-                fetcher.submit(formData, { method: "POST" });
-              }}
-            />
-          </div>
-        </IndexTable.Cell>
       </IndexTable.Row>
     );
   });
@@ -574,15 +568,35 @@ export default function ProductsIndexPage() {
 
                 {categories.length > 0 && (
                   <div style={{ minWidth: "180px" }}>
-                    <Select
-                      label="Category"
-                      options={[
-                        { label: "All categories", value: "" },
-                        ...categories.map((c) => ({ label: c, value: c })),
-                      ]}
-                      value={categoryValue}
-                      onChange={(v) => { setCategoryValue(v); applyFilters({ category: v }); }}
-                    />
+                    <Popover
+                      active={categoryPopoverActive}
+                      activator={
+                        <Button
+                          onClick={() => setCategoryPopoverActive((v) => !v)}
+                          disclosure
+                        >
+                          {categoryValues.length === 0
+                            ? "All categories"
+                            : `${categoryValues.length} categor${categoryValues.length === 1 ? "y" : "ies"}`}
+                        </Button>
+                      }
+                      onClose={() => setCategoryPopoverActive(false)}
+                      preferredAlignment="left"
+                    >
+                      <div style={{ maxHeight: "300px", overflow: "auto", padding: "8px" }}>
+                        <ChoiceList
+                          title="Categories"
+                          titleHidden
+                          allowMultiple
+                          choices={categories.map((c) => ({ label: c, value: c }))}
+                          selected={categoryValues}
+                          onChange={(selected) => {
+                            setCategoryValues(selected);
+                            applyFilters({ category: selected.join(",") });
+                          }}
+                        />
+                      </div>
+                    </Popover>
                   </div>
                 )}
 
@@ -597,6 +611,18 @@ export default function ProductsIndexPage() {
                     onChange={(v) => { setInStockValue(v); applyFilters({ inStock: v }); }}
                   />
                 </div>
+
+                <Button
+                  pressed={favoritesValue === "true"}
+                  onClick={() => {
+                    const next = favoritesValue === "true" ? "" : "true";
+                    setFavoritesValue(next);
+                    applyFilters({ favorites: next });
+                  }}
+                  icon={StarIcon}
+                >
+                  Favorites
+                </Button>
 
                 <div style={{ minWidth: "120px" }}>
                   <Select
@@ -670,18 +696,33 @@ export default function ProductsIndexPage() {
                 return (
                   <Card key={row.upc}>
                     <BlockStack gap="200">
-                      <Link to={`/app/products/${row.upc}`}>
-                        <div style={{ display: "flex", justifyContent: "center", padding: "8px" }}>
-                          <Thumbnail
-                            source={
-                              row.imageUrl ||
-                              "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-product-1_small.png"
-                            }
-                            alt={row.title}
-                            size="large"
+                      <div style={{ position: "relative" }}>
+                        <Link to={`/app/products/${row.upc}`}>
+                          <div style={{ display: "flex", justifyContent: "center", padding: "8px" }}>
+                            <Thumbnail
+                              source={
+                                row.imageUrl ||
+                                "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-product-1_small.png"
+                              }
+                              alt={row.title}
+                              size="large"
+                            />
+                          </div>
+                        </Link>
+                        <div style={{ position: "absolute", top: "4px", right: "4px" }}>
+                          <Button
+                            variant="plain"
+                            onClick={() => {
+                              const formData = new FormData();
+                              formData.append("intent", "toggle_favorite");
+                              formData.append("upc", row.upc);
+                              fetcher.submit(formData, { method: "POST" });
+                            }}
+                            icon={StarIcon}
+                            tone={row.isFavorite ? "critical" : undefined}
                           />
                         </div>
-                      </Link>
+                      </div>
                       <BlockStack gap="100">
                         <Link to={`/app/products/${row.upc}`}>
                           <Text as="p" variant="bodySm" fontWeight="semibold" truncate>

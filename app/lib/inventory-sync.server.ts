@@ -332,10 +332,16 @@ export async function syncProductCatalog(
       }));
     } else if (supplier === "nalpac") {
       const { fetchProducts } = await import("./suppliers/nalpac.server");
+      // Nalpac API caps pages at 100 items regardless of requested pageSize.
+      // Use pageSize=100 and loop until we get a short page.
+      const PAGE_SIZE = 100;
+      const MAX_PAGES = 250; // safety: 250 pages * 100 = 25,000 max
       let page = 1;
       let hasMore = true;
-      while (hasMore) {
-        const batch = await fetchProducts(creds, page, 500);
+      while (hasMore && page <= MAX_PAGES) {
+        console.log(`[nalpac] syncProductCatalog: fetching page ${page} (pageSize=${PAGE_SIZE})`);
+        const batch = await fetchProducts(creds, page, PAGE_SIZE);
+        console.log(`[nalpac] syncProductCatalog: page ${page} returned ${batch.length} items (total so far: ${products.length + batch.length})`);
         for (const p of batch) {
           products.push({
             sku: p.sku,
@@ -350,10 +356,13 @@ export async function syncProductCatalog(
             images: p.images || [],
           });
         }
-        hasMore = batch.length === 500;
+        // Stop when a page returns fewer items than requested (last page)
+        hasMore = batch.length >= PAGE_SIZE;
         page++;
-        await new Promise((r) => setTimeout(r, 500));
+        // Small delay to avoid rate-limiting
+        await new Promise((r) => setTimeout(r, 300));
       }
+      console.log(`[nalpac] syncProductCatalog: finished — ${products.length} total products fetched over ${page - 1} pages`);
     } else if (supplier === "eldorado") {
       const eldoProducts = await downloadProductFeed(creds);
       products = eldoProducts.map((p: any) => ({

@@ -21,6 +21,7 @@ import {
   Icon,
   Banner,
   Pagination,
+  Select,
 } from "@shopify/polaris";
 import { CheckCircleIcon, AlertCircleIcon, XCircleIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
@@ -146,6 +147,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
       eldoradoSku: match?.eldoradoSku || null,
       honeysplaceSku: match?.honeysplaceSku || null,
       nalpacSku: match?.nalpacSku || null,
+      lockedSupplier: match?.lockedSupplier || null,
       lowestCost,
       defaultSupplier,
       qtySold: qtySoldMap[product.id] || 0,
@@ -191,6 +193,21 @@ export async function action({ request }: ActionFunctionArgs) {
       await prisma.productMatch.update({
         where: { id: match.id },
         data: { shopifyProductId, importedAt: new Date() },
+      });
+    }
+    return json({ success: true });
+  }
+
+  if (intent === "lock_supplier") {
+    const upc = String(formData.get("upc"));
+    const supplier = String(formData.get("supplier"));
+    const match = await prisma.productMatch.findFirst({
+      where: { shopId: shop.id, upc },
+    });
+    if (match) {
+      await prisma.productMatch.update({
+        where: { id: match.id },
+        data: { lockedSupplier: supplier === "auto" ? null : supplier },
       });
     }
     return json({ success: true });
@@ -278,10 +295,27 @@ export default function LinkedProductsPage() {
       </IndexTable.Cell>
 
       <IndexTable.Cell>
-        {p.defaultSupplier ? (
-          <Badge>{supplierLabel[p.defaultSupplier] || p.defaultSupplier}</Badge>
+        {p.matchStatus === "linked" ? (
+          <Select
+            label=""
+            labelHidden
+            options={[
+              { label: "Auto (Cheapest)", value: "auto" },
+              ...(p.eldoradoSku ? [{ label: "Eldorado", value: "eldorado" }] : []),
+              ...(p.honeysplaceSku ? [{ label: "Honey's Place", value: "honeysplace" }] : []),
+              ...(p.nalpacSku ? [{ label: "Nalpac", value: "nalpac" }] : []),
+            ]}
+            value={p.lockedSupplier || "auto"}
+            onChange={(value) => {
+              const fd = new FormData();
+              fd.append("intent", "lock_supplier");
+              fd.append("upc", p.upc);
+              fd.append("supplier", value);
+              fetcher.submit(fd, { method: "POST" });
+            }}
+          />
         ) : (
-          <Text as="span" tone="subdued">—</Text>
+          <Text as="span" tone="subdued">--</Text>
         )}
       </IndexTable.Cell>
 
@@ -356,7 +390,7 @@ export default function LinkedProductsPage() {
                 { title: "Shopify Status" },
                 { title: "Link Status" },
                 { title: "Cost" },
-                { title: "Default Supplier" },
+                { title: "Fulfillment" },
                 { title: "Qty Sold (90d)" },
                 { title: "Actions" },
               ]}
