@@ -283,6 +283,13 @@ export async function syncProductCatalog(
 
   const creds = typeof credential.credentialsEncrypted === "string" ? JSON.parse(credential.credentialsEncrypted as string) : credential.credentialsEncrypted;
 
+  // Clean up any stale "running" logs for this supplier (older than 5 min)
+  const fiveMinAgo = new Date(Date.now() - 5 * 60_000);
+  await prisma.syncLog.updateMany({
+    where: { shopId, supplier, status: "running", startedAt: { lt: fiveMinAgo } },
+    data: { status: "failed", completedAt: new Date(), errorsJson: JSON.stringify(["Timed out or crashed"]) },
+  });
+
   const log = await prisma.syncLog.create({
     data: { shopId, supplier, syncType: "products", status: "running" },
   });

@@ -108,6 +108,8 @@ export interface EldoradoShipmentConfirmation {
 const SFTP_HOST = "52.27.75.88";
 const SFTP_PORT = 22;
 
+const SFTP_OPERATION_TIMEOUT = 120_000; // 2 minutes max for any SFTP operation
+
 async function withSftp<T>(
   credentials: EldoradoCredentials,
   fn: (ssh: NodeSSH) => Promise<T>
@@ -121,7 +123,17 @@ async function withSftp<T>(
       password: credentials.sftpPassword,
       readyTimeout: 15000,
     });
-    return await fn(ssh);
+    // Wrap the operation in a timeout to prevent hanging on large files
+    const result = await Promise.race([
+      fn(ssh),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(
+          `SFTP operation timed out after ${SFTP_OPERATION_TIMEOUT / 1000}s. ` +
+          `The file may be very large or the connection stalled. Try again shortly.`
+        )), SFTP_OPERATION_TIMEOUT)
+      ),
+    ]);
+    return result;
   } finally {
     ssh.dispose();
   }

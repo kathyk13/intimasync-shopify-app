@@ -97,10 +97,14 @@ export async function fetchProducts(
     Accept: "application/json",
   };
 
-  // Try multiple endpoints â Nalpac API path varies by account configuration
+  // Try multiple endpoints + pagination parameter styles
+  // Nalpac ASP.NET API may use pageNumber/pageSize, page/size, or $skip/$top
   const endpoints = [
     `${baseUrl}/api/product?pageNumber=${page}&pageSize=${pageSize}`,
     `${baseUrl}/api/productV2?pageNumber=${page}&pageSize=${pageSize}`,
+    `${baseUrl}/api/product?page=${page}&size=${pageSize}`,
+    `${baseUrl}/api/productV2?page=${page}&size=${pageSize}`,
+    `${baseUrl}/api/product?$skip=${(page - 1) * pageSize}&$top=${pageSize}`,
     `${baseUrl}/api/products?pageNumber=${page}&pageSize=${pageSize}`,
   ];
 
@@ -144,7 +148,43 @@ export async function fetchProducts(
   }
 
   const data = await response.json() as any;
-  const items = Array.isArray(data) ? data : data.items || data.products || data.data || [];
+
+  // Log response shape for debugging (visible in Render logs)
+  const isArr = Array.isArray(data);
+  const keys = data && typeof data === "object" && !isArr ? Object.keys(data) : [];
+  console.log(
+    `[nalpac] fetchProducts: response isArray=${isArr} keys=[${keys.join(",")}]` +
+    (keys.length > 0 ? ` sampleValues={${keys.map(k => `${k}:${typeof data[k]}`).join(",")}}` : "")
+  );
+
+  // Try every common response envelope key (ASP.NET APIs vary in casing)
+  let items: any[];
+  if (isArr) {
+    items = data;
+  } else {
+    items =
+      data.items || data.Items ||
+      data.products || data.Products ||
+      data.data || data.Data ||
+      data.records || data.Records ||
+      data.results || data.Results ||
+      data.value || data.Value ||
+      [];
+    // If still empty and there's a single key that's an array, use it
+    if (items.length === 0 && keys.length > 0) {
+      const arrayKey = keys.find((k) => Array.isArray(data[k]));
+      if (arrayKey) {
+        console.log(`[nalpac] fetchProducts: using response key "${arrayKey}" (${data[arrayKey].length} items)`);
+        items = data[arrayKey];
+      }
+    }
+  }
+
+  console.log(`[nalpac] fetchProducts: extracted ${items.length} items from response`);
+  if (items.length > 0) {
+    const sample = items[0];
+    console.log(`[nalpac] fetchProducts: first item keys=[${Object.keys(sample || {}).join(",")}]`);
+  }
 
   return items.map((item: any) => mapNalpacProduct(item));
 }

@@ -240,7 +240,7 @@ export default function SettingsPage() {
             <SupplierSection supplier="eldorado" title="Eldorado" subtitle="eldorado.net" existing={eldorado} shippingOptions={eldShippingOptions}
               faq={supplierFAQ.eldorado}
               fields={[
-                { name: "accountId", label: "Account ID", type: "text", placeholder: "e.g. 1234A" },
+                { name: "accountId", label: "Customer ID (numeric)", type: "text", placeholder: "e.g. 8960 (from Eldorado welcome email)" },
                 { name: "sftpHost", label: "SFTP Host / IP", type: "text", placeholder: "52.27.75.88" },
                 { name: "sftpUsername", label: "SFTP Username", type: "text" },
                 { name: "sftpPassword", label: "SFTP Password", type: "password" },
