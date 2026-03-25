@@ -3,7 +3,7 @@
  * Spreadsheet + thumbnail views, search, category filter, per-page selector
  */
 
-import { useState, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import { json, type LoaderFunctionArgs, type ActionFunctionArgs } from "@remix-run/node";
 import { useLoaderData, useSubmit, useFetcher, Link, useNavigate } from "@remix-run/react";
 import {
@@ -32,7 +32,24 @@ import { LockIcon, StarIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 
-// âââ Types âââ
+// --- Types ---
+const PLACEHOLDER_IMG =
+  "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-product-1_small.png";
+
+/** Image with broken-URL fallback to placeholder */
+function SafeThumbnail({ src, alt, size }: { src: string | null; alt: string; size: "small" | "large" }) {
+  const [imgSrc, setImgSrc] = React.useState(src || PLACEHOLDER_IMG);
+  const px = size === "large" ? 120 : 40;
+  return (
+    <img
+      src={imgSrc}
+      alt={alt}
+      onError={() => setImgSrc(PLACEHOLDER_IMG)}
+      style={{ width: px, height: px, objectFit: "contain", borderRadius: "4px", background: "#f6f6f7" }}
+    />
+  );
+}
+
 interface ProductRow {
   upc: string;
   title: string;
@@ -373,14 +390,7 @@ export default function ProductsIndexPage() {
         position={index}
       >
         <IndexTable.Cell>
-          <Thumbnail
-            source={
-              row.imageUrl ||
-              "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-product-1_small.png"
-            }
-            alt={row.title}
-            size="small"
-          />
+          <SafeThumbnail src={row.imageUrl} alt={row.title} size="small" />
         </IndexTable.Cell>
         <IndexTable.Cell>
           <div onClick={(e) => e.stopPropagation()} style={{ cursor: "pointer" }}>
@@ -699,14 +709,7 @@ export default function ProductsIndexPage() {
                       <div style={{ position: "relative" }}>
                         <Link to={`/app/products/${row.upc}`}>
                           <div style={{ display: "flex", justifyContent: "center", padding: "8px" }}>
-                            <Thumbnail
-                              source={
-                                row.imageUrl ||
-                                "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-product-1_small.png"
-                              }
-                              alt={row.title}
-                              size="large"
-                            />
+                            <SafeThumbnail src={row.imageUrl} alt={row.title} size="large" />
                           </div>
                         </Link>
                         <div style={{ position: "absolute", top: "4px", right: "4px" }}>
@@ -833,7 +836,7 @@ function ImportModal({
           {rows.map((row) => (
             <InlineStack key={row.upc} gap="400" blockAlign="center">
               <div style={{ width: 48, flexShrink: 0 }}>
-                <Thumbnail source={row.imageUrl || ""} alt={row.title} size="small" />
+                <SafeThumbnail src={row.imageUrl} alt={row.title} size="small" />
               </div>
               <BlockStack gap="100" inlineSize="fill">
                 <Text as="span" variant="bodySm" fontWeight="semibold">{row.title}</Text>

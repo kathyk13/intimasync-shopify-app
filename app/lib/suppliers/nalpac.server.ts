@@ -201,9 +201,17 @@ function mapNalpacProduct(item: any): NalpacProduct {
     category: String(item.category || item.productCategory || ""),
     manufacturer: String(item.manufacturer || item.brand || item.vendorName || ""),
     images: [
-      item.imageUrl || item.image || item.primaryImage || "",
+      item.imageUrl || item.ImageUrl || item.image_url || item.ImageURL ||
+      item.image || item.Image || item.primaryImage || item.PrimaryImage ||
+      item.primaryImageUrl || item.PrimaryImageUrl || item.primaryImageURL ||
+      item.thumbnail || item.Thumbnail || item.thumbnailUrl || item.ThumbnailUrl ||
+      item.productImage || item.ProductImage || item.productImageUrl ||
+      item.largePicturePath || item.LargePicturePath || item.pictureUrl || item.PictureUrl ||
+      "",
       ...(item.additionalImages ? (Array.isArray(item.additionalImages) ? item.additionalImages : [item.additionalImages]) : []),
-    ].filter(Boolean),
+      ...(item.ImageUrls ? (Array.isArray(item.ImageUrls) ? item.ImageUrls : [item.ImageUrls]) : []),
+      ...(item.imageUrls ? (Array.isArray(item.imageUrls) ? item.imageUrls : [item.imageUrls]) : []),
+    ].filter((url): url is string => typeof url === "string" && url.startsWith("http")),
     weight: item.weight ? parseFloat(String(item.weight)) : undefined,
     dimensions: {
       height: item.height ? parseFloat(String(item.height)) : undefined,

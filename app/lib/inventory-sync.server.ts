@@ -337,6 +337,9 @@ export async function syncProductCatalog(
       console.log(`[honeysplace] syncProductCatalog: fetching feed from ${feedUrl.substring(0, 60)}...`);
       const raw = await fetchProductFeed(feedUrl);
       console.log(`[honeysplace] syncProductCatalog: received ${raw.length} products from feed`);
+      const hpWithImages = raw.filter((p) => p.images?.length > 0);
+      console.log(`[honeysplace] products with images: ${hpWithImages.length}/${raw.length}`);
+      if (hpWithImages.length > 0) console.log(`[honeysplace] sample image URL: ${hpWithImages[0].images[0]}`);
       products = raw.map((p) => ({
         sku: p.sku,
         upc: p.upc || null,
@@ -382,6 +385,9 @@ export async function syncProductCatalog(
         await new Promise((r) => setTimeout(r, 300));
       }
       console.log(`[nalpac] syncProductCatalog: finished — ${products.length} total products fetched over ${page - 1} pages`);
+      const withImages = products.filter((p: any) => p.images?.length > 0);
+      console.log(`[nalpac] products with images: ${withImages.length}/${products.length}`);
+      if (withImages.length > 0) console.log(`[nalpac] sample image URL: ${withImages[0].images[0]}`);
     } else if (supplier === "eldorado") {
       const eldoProducts = await downloadProductFeed(creds);
       products = eldoProducts.map((p: any) => ({
@@ -396,6 +402,9 @@ export async function syncProductCatalog(
         manufacturer: p.manufacturer || null,
         images: p.images || [],
       }));
+      const eldWithImages = products.filter((p: any) => p.images?.length > 0);
+      console.log(`[eldorado] products with images: ${eldWithImages.length}/${products.length}`);
+      if (eldWithImages.length > 0) console.log(`[eldorado] sample image URL: ${eldWithImages[0].images[0]}`);
     }
 
     // ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ Unified upsert for all suppliers ÃÂ¢ÃÂÃÂÃÂ¢ÃÂÃÂ

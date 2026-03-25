@@ -270,6 +270,10 @@ export function buildFeedUrl(credentials: HoneysPlaceCredentials): string {
   }
   const token = credentials.feedToken || credentials.apiToken;
   if (!token) throw new Error("Honey's Place: no feed token or API token in credentials");
+  // Try account-based URL first (more reliable), fall back to token-only
+  if (credentials.account) {
+    return `https://www.honeysplace.com/DataFeed/json?account=${encodeURIComponent(credentials.account)}&token=${encodeURIComponent(token)}`;
+  }
   return `https://www.honeysplace.com/df/${encodeURIComponent(token)}/json`;
 }
 
@@ -290,20 +294,23 @@ export async function fetchProductFeed(
 
   return data.map((item: any) => {
     // Collect images: primary + alternates
+    // HP feed field names vary by customer tier and feed version
     const primaryImage =
-      item.ImageURL ||
-      item.image_url ||
-      item.image ||
-      item["Image URL"] ||
-      item.PrimaryImage ||
-      item.MainImage ||
+      item.ImageURL || item.imageURL || item.imageUrl || item.image_url ||
+      item["Image URL"] || item["Image Url"] || item["image url"] ||
+      item.PrimaryImage || item.primaryImage || item.MainImage || item.main_image ||
+      item.ProductImage || item.product_image ||
+      item.Thumbnail || item.thumbnail || item.ThumbnailURL || item.thumbnailUrl ||
+      item.image || item.Image ||
+      item.LargeImage || item.large_image || item.FullImage || item.full_image ||
       "";
 
     const altImages: string[] = [];
-    for (let i = 2; i <= 6; i++) {
+    for (let i = 1; i <= 8; i++) {
       const alt =
-        item[`ImageURL${i}`] ||
-        item[`AlternateImage${i}`] ||
+        item[`ImageURL${i}`] || item[`imageURL${i}`] || item[`imageUrl${i}`] ||
+        item[`AltImage${i}`] || item[`altImage${i}`] || item[`alt_image_${i}`] ||
+        item[`AlternateImage${i}`] || item[`alternate_image_${i}`] ||
         item[`image_url_${i}`] ||
         "";
       if (alt) altImages.push(String(alt));
@@ -311,9 +318,13 @@ export async function fetchProductFeed(
     if (item.additional_images) {
       if (Array.isArray(item.additional_images)) {
         altImages.push(...item.additional_images.filter(Boolean).map(String));
-      } else {
+      } else if (item.additional_images) {
         altImages.push(String(item.additional_images));
       }
+    }
+    if (item.AdditionalImages) {
+      const addl = Array.isArray(item.AdditionalImages) ? item.AdditionalImages : [item.AdditionalImages];
+      altImages.push(...addl.filter(Boolean).map(String));
     }
 
     return {
@@ -396,7 +407,8 @@ export async function fetchProductFeed(
         item.Vendor ||
         ""
       ),
-      images: [primaryImage, ...altImages].filter(Boolean).map(String),
+      images: [primaryImage, ...altImages]
+        .filter((url): url is string => typeof url === "string" && url.startsWith("http")),
       weight: parseFloat(String(item.Weight ?? item.weight ?? "0")),
     };
   });

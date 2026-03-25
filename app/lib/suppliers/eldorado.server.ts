@@ -379,10 +379,27 @@ export function parseProductFeedTsv(content: string): EldoradoProduct[] {
       get(row, "features_value_2"),
     ].filter(Boolean);
 
-    // Primary image + up to 4 variant suffixes (a, b, c, d)
-    const imageBase = "https://www.eldorado.net/images/large";
-    const images = [`${imageBase}/${model}.jpg`];
-    ["a", "b", "c", "d"].forEach((s) => images.push(`${imageBase}/${model}${s}.jpg`));
+    // Eldorado uses Magento — images are at /media/catalog/product/{l1}/{l2}/{model}.jpg
+    // The TSV may include a products_image column with the relative path.
+    // Fallback: derive path from model number (first two chars become the subdirectory).
+    const mediaBase = "https://www.eldorado.net/media/catalog/product";
+    const tsvImagePath = get(row, "products_image") || get(row, "product_image") || get(row, "image_url") || get(row, "image");
+
+    let primaryImage: string;
+    if (tsvImagePath && tsvImagePath.startsWith("/")) {
+      // Relative path from TSV: /l/u/lu103-hhp-cr.jpg
+      primaryImage = `${mediaBase}${tsvImagePath}`;
+    } else if (tsvImagePath && tsvImagePath.startsWith("http")) {
+      primaryImage = tsvImagePath;
+    } else {
+      // Derive from model: LU103-HHP-CR → /l/u/lu103-hhp-cr.jpg
+      const mLow = model.toLowerCase().replace(/[^a-z0-9\-_]/g, "");
+      const l1 = mLow[0] || "x";
+      const l2 = mLow[1] || "x";
+      primaryImage = `${mediaBase}/${l1}/${l2}/${mLow}.jpg`;
+    }
+
+    const images = [primaryImage];
 
     products.push({
       model,

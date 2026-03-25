@@ -23,7 +23,32 @@ import {
 import { ArrowLeftIcon, ImportIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+
+const PLACEHOLDER =
+  "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-product-1_small.png";
+
+/** Renders an <img> that falls back to a placeholder on load error. */
+function SafeImage({ src, alt, size }: { src: string; alt: string; size: number }) {
+  const [errored, setErrored] = useState(false);
+  const handleError = useCallback(() => setErrored(true), []);
+  if (errored) return null; // hide broken images entirely
+  return (
+    <img
+      src={src}
+      alt={alt}
+      onError={handleError}
+      style={{
+        width: size,
+        height: size,
+        objectFit: "contain",
+        borderRadius: "8px",
+        border: "1px solid #e1e3e5",
+        background: "#f6f6f7",
+      }}
+    />
+  );
+}
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const { session } = await authenticate.admin(request);
@@ -331,12 +356,12 @@ export default function ProductDetailPage() {
               <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
                 {uniqueImages.slice(0, 20).map((img: string) => (
                   <a key={img} href={img} target="_blank" rel="noreferrer">
-                    <Thumbnail source={img} alt="Product image" size="large" />
+                    <SafeImage src={img} alt="Product image" size={120} />
                   </a>
                 ))}
                 {uniqueImages.length === 0 && (
                   <Text as="p" tone="subdued">
-                    No images available
+                    No images available. Run a catalog sync to fetch product images from suppliers.
                   </Text>
                 )}
               </div>
