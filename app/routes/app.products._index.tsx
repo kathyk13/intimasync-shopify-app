@@ -66,8 +66,31 @@ interface ProductRow {
 // âââ Loader âââ
 export async function loader({ request }: LoaderFunctionArgs) {
   const { session } = await authenticate.admin(request);
-  const shopId = await getShopId(session.shop);
 
+  let shopId: string;
+  try {
+    shopId = await getShopId(session.shop);
+  } catch {
+    console.error("Products loader: shop not found for", session.shop);
+    return json({
+      rows: [],
+      total: 0,
+      page: 1,
+      perPage: 50,
+      enabledSuppliers: [],
+      categories: [],
+      search: "",
+      category: "",
+      supplierFilter: "",
+      inStockOnly: false,
+      favoritesOnly: false,
+      hasRunningSync: false,
+      runningSupplier: null,
+      dbError: true,
+    });
+  }
+
+  try {
   const url = new URL(request.url);
   const page = parseInt(url.searchParams.get("page") || "1");
   const perPage = parseInt(url.searchParams.get("perPage") || "50");
@@ -212,7 +235,27 @@ export async function loader({ request }: LoaderFunctionArgs) {
     favoritesOnly,
     hasRunningSync: !!runningSync,
     runningSupplier: runningSync?.supplier ?? null,
+    dbError: false,
   });
+  } catch (err) {
+    console.error("Products loader error:", err);
+    return json({
+      rows: [],
+      total: 0,
+      page: 1,
+      perPage: 50,
+      enabledSuppliers: [],
+      categories: [],
+      search: "",
+      category: "",
+      supplierFilter: "",
+      inStockOnly: false,
+      favoritesOnly: false,
+      hasRunningSync: false,
+      runningSupplier: null,
+      dbError: true,
+    });
+  }
 }
 
 // âââ Action âââ
@@ -266,6 +309,7 @@ export default function ProductsIndexPage() {
     favoritesOnly: initialFavoritesOnly,
     hasRunningSync,
     runningSupplier,
+    dbError,
   } = useLoaderData<typeof loader>();
 
   const submit = useSubmit();
@@ -507,6 +551,12 @@ export default function ProductsIndexPage() {
     >
       <Layout>
         <Layout.Section>
+          {dbError && (
+            <Banner tone="critical" title="Product data unavailable">
+              There was a problem loading product data. Please try syncing your catalog from the Sync page, or check Settings to ensure your supplier credentials are saved.
+            </Banner>
+          )}
+
           {hasRunningSync && (
             <Banner tone="info" title="Sync in progress">
               {runningSupplier && runningSupplier !== "all"

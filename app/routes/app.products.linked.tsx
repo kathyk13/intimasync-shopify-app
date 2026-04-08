@@ -30,12 +30,12 @@ import prisma from "../db.server";
 // Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Loader Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 export async function loader({ request }: LoaderFunctionArgs) {
   const { admin, session } = await authenticate.admin(request);
+
+  try {
   const shop = await prisma.shop.findUnique({
     where: { shopifyDomain: session.shop },
   });
   if (!shop) throw new Error("Shop not found");
-
-  try {
   const url = new URL(request.url);
   const page = parseInt(url.searchParams.get("page") || "1");
   const perPage = 50;

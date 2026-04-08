@@ -30,6 +30,21 @@ export async function loader({ request }: LoaderFunctionArgs) {
   if (!shop) throw new Error("Shop not found");
 
   try {
+    // Auto-clean stuck "running" sync logs older than 15 minutes
+    const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000);
+    await prisma.syncLog.updateMany({
+      where: {
+        shopId: shop.id,
+        status: "running",
+        startedAt: { lt: fifteenMinAgo },
+      },
+      data: {
+        status: "failed",
+        completedAt: new Date(),
+        errorsJson: JSON.stringify([{ message: "Sync timed out (auto-cleaned after 15 minutes)" }]),
+      },
+    });
+
     const logs = await prisma.syncLog.findMany({
       where: { shopId: shop.id },
       orderBy: { startedAt: "desc" },
