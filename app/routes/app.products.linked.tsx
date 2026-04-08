@@ -1,6 +1,7 @@
 /**
  * IntimaSync - Linked Products
- * Shows Shopify store products, their supplier match status, cost, and qty sold
+ * Shows Shopify store products/variants, their supplier match status, and auto-linking by UPC.
+ * Handles multi-variant products (e.g. Coochy Shave Cream with different sizes/scents).
  */
 
 import { useState } from "react";
@@ -21,158 +22,238 @@ import {
   Icon,
   Banner,
   Pagination,
-  Select,
 } from "@shopify/polaris";
 import { CheckCircleIcon, AlertCircleIcon, XCircleIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 
-// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Loader Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+// --- Loader ---
 export async function loader({ request }: LoaderFunctionArgs) {
   const { admin, session } = await authenticate.admin(request);
 
   try {
-  const shop = await prisma.shop.findUnique({
-    where: { shopifyDomain: session.shop },
-  });
-  if (!shop) throw new Error("Shop not found");
-  const url = new URL(request.url);
-  const page = parseInt(url.searchParams.get("page") || "1");
-  const perPage = 50;
+    const shop = await prisma.shop.findUnique({
+      where: { shopifyDomain: session.shop },
+    });
+    if (!shop) throw new Error("Shop not found");
 
-  // Fetch products from Shopify
-  const response = await admin.graphql(
-    `
-    query GetProducts($first: Int!) {
-      products(first: $first, query: "status:active OR status:draft") {
-        nodes {
-          id
-          title
-          status
-          images(first: 1) { nodes { url } }
-          variants(first: 1) {
+    const url = new URL(request.url);
+    const page = parseInt(url.searchParams.get("page") || "1");
+    const perPage = 50;
+
+    // Fetch products with ALL variants (up to 20 per product) so each UPC is matchable
+    const response = await admin.graphql(
+      `
+      query GetProducts($first: Int!) {
+        products(first: $first, query: "status:active OR status:draft") {
+          nodes {
+            id
+            title
+            status
+            images(first: 1) { nodes { url } }
+            variants(first: 20) {
+              nodes {
+                id
+                title
+                sku
+                barcode
+                price
+                displayName
+              }
+            }
+            totalInventory
+          }
+        }
+      }
+    `,
+      { variables: { first: 250 } }
+    );
+
+    const data = await response.json();
+    const shopifyProducts = data.data?.products?.nodes || [];
+
+    // Fetch order line items for qty sold (last 90 days)
+    let qtySoldMap: Record<string, number> = {};
+    try {
+      const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+      const ordersResponse = await admin.graphql(`
+        query {
+          orders(first: 250, query: "created_at:>=${cutoff}") {
             nodes {
-              id
-              sku
-              barcode
-              price
+              lineItems(first: 50) {
+                nodes {
+                  product { id }
+                  quantity
+                }
+              }
             }
           }
-          totalInventory
+        }
+      `);
+      const ordersData = await ordersResponse.json();
+      for (const order of ordersData.data?.orders?.nodes || []) {
+        for (const line of order.lineItems?.nodes || []) {
+          if (line.product?.id) {
+            qtySoldMap[line.product.id] =
+              (qtySoldMap[line.product.id] || 0) + line.quantity;
+          }
         }
       }
+    } catch (err) {
+      console.error("Linked: orders query failed (non-fatal):", err);
     }
-  `,
-    { variables: { first: 250 } }
-  );
 
-  const data = await response.json();
-  const shopifyProducts = data.data?.products?.nodes || [];
+    // Build rows: one per variant (since each variant can have its own UPC)
+    interface LinkedRow {
+      shopifyProductId: string;
+      shopifyVariantId: string;
+      productTitle: string;
+      variantTitle: string;
+      status: string;
+      imageUrl: string | null;
+      shopifySku: string;
+      upc: string;
+      matchStatus: "linked" | "potential" | "unmatched";
+      matchId: string | null;
+      eldoradoSku: string | null;
+      honeysplaceSku: string | null;
+      nalpacSku: string | null;
+      lockedSupplier: string | null;
+      lowestCost: number | null;
+      defaultSupplier: string | null;
+      qtySold: number;
+      isMultiVariant: boolean;
+    }
 
-  // Fetch order line items to get qty sold per product
-  // We query top-level order data for the last 90 days
-  const ordersResponse = await admin.graphql(`
-    query {
-      orders(first: 250, query: "created_at:>=${new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}") {
-        nodes {
-          lineItems(first: 50) {
-            nodes {
-              product { id }
-              quantity
+    const rows: LinkedRow[] = [];
+
+    for (const product of shopifyProducts) {
+      const variants = product.variants?.nodes || [];
+      const isMultiVariant = variants.length > 1;
+      const imageUrl = product.images?.nodes?.[0]?.url || null;
+
+      for (const variant of variants) {
+        const upc = variant.barcode || "";
+        const shopifySku = variant.sku || "";
+
+        let matchStatus: "linked" | "potential" | "unmatched" = "unmatched";
+        let matchId: string | null = null;
+        let eldoradoSku: string | null = null;
+        let honeysplaceSku: string | null = null;
+        let nalpacSku: string | null = null;
+        let lockedSupplier: string | null = null;
+        let lowestCost: number | null = null;
+        let defaultSupplier: string | null = null;
+
+        // Check if already linked (by shopifyProductId on a ProductMatch)
+        const existingLink = await prisma.productMatch.findFirst({
+          where: {
+            shopId: shop.id,
+            shopifyProductId: product.id,
+            // If we stored the variant ID, match on that too
+            ...(variant.id ? {} : {}),
+          },
+        });
+
+        if (existingLink) {
+          matchStatus = "linked";
+          matchId = existingLink.id;
+          eldoradoSku = existingLink.eldoradoSku;
+          honeysplaceSku = existingLink.honeysplaceSku;
+          nalpacSku = existingLink.nalpacSku;
+          lockedSupplier = existingLink.lockedSupplier;
+          // Get lowest cost
+          const supplierProducts = await prisma.supplierProduct.findMany({
+            where: { shopId: shop.id, upc: existingLink.upc },
+          });
+          for (const sp of supplierProducts) {
+            if (sp.inventoryQty > 0 && sp.cost != null) {
+              if (lowestCost === null || sp.cost < lowestCost) {
+                lowestCost = sp.cost;
+                defaultSupplier = existingLink.lockedSupplier || sp.supplier;
+              }
+            }
+          }
+        } else if (upc) {
+          // Check if a ProductMatch exists for this UPC (potential auto-link)
+          const potentialMatch = await prisma.productMatch.findFirst({
+            where: { shopId: shop.id, upc },
+          });
+          if (potentialMatch) {
+            matchStatus = "potential";
+            matchId = potentialMatch.id;
+            eldoradoSku = potentialMatch.eldoradoSku;
+            honeysplaceSku = potentialMatch.honeysplaceSku;
+            nalpacSku = potentialMatch.nalpacSku;
+            // Show cost preview even before linking
+            const supplierProducts = await prisma.supplierProduct.findMany({
+              where: { shopId: shop.id, upc },
+            });
+            for (const sp of supplierProducts) {
+              if (sp.inventoryQty > 0 && sp.cost != null) {
+                if (lowestCost === null || sp.cost < lowestCost) {
+                  lowestCost = sp.cost;
+                  defaultSupplier = sp.supplier;
+                }
+              }
             }
           }
         }
-      }
-    }
-  `);
-  const ordersData = await ordersResponse.json();
-  const qtySoldMap: Record<string, number> = {};
-  for (const order of ordersData.data?.orders?.nodes || []) {
-    for (const line of order.lineItems?.nodes || []) {
-      if (line.product?.id) {
-        qtySoldMap[line.product.id] =
-          (qtySoldMap[line.product.id] || 0) + line.quantity;
-      }
-    }
-  }
 
-  const products = [];
-  for (const product of shopifyProducts) {
-    const variant = product.variants?.nodes?.[0];
-    const upc = variant?.barcode || "";
-    const shopifySku = variant?.sku || "";
-
-    const match = await prisma.productMatch.findFirst({
-      where: { shopId: shop.id, shopifyProductId: product.id },
-    });
-
-    let matchStatus: "linked" | "potential" | "unmatched" = "unmatched";
-    let potentialUpc: string | null = null;
-    let lowestCost: number | null = null;
-    let defaultSupplier: string | null = null;
-
-    if (match) {
-      matchStatus = "linked";
-      // Get lowest cost supplier
-      const supplierProducts = await prisma.supplierProduct.findMany({
-        where: { shopId: shop.id, upc: match.upc },
-      });
-      for (const sp of supplierProducts) {
-        if (sp.inventoryQty > 0 && sp.cost != null) {
-          if (lowestCost === null || (sp.cost && sp.cost < lowestCost)) {
-            lowestCost = sp.cost;
-            defaultSupplier = match.lockedSupplier || sp.supplier;
-          }
-        }
-      }
-    } else if (upc) {
-      const potentialMatch = await prisma.productMatch.findFirst({
-        where: { shopId: shop.id, upc },
-      });
-      if (potentialMatch) {
-        matchStatus = "potential";
-        potentialUpc = upc;
+        rows.push({
+          shopifyProductId: product.id,
+          shopifyVariantId: variant.id,
+          productTitle: product.title,
+          variantTitle: isMultiVariant ? (variant.title || variant.displayName || "") : "",
+          status: product.status,
+          imageUrl,
+          shopifySku,
+          upc,
+          matchStatus,
+          matchId,
+          eldoradoSku,
+          honeysplaceSku,
+          nalpacSku,
+          lockedSupplier,
+          lowestCost,
+          defaultSupplier,
+          qtySold: qtySoldMap[product.id] || 0,
+          isMultiVariant,
+        });
       }
     }
 
-    products.push({
-      shopifyProductId: product.id,
-      title: product.title,
-      status: product.status,
-      imageUrl: product.images?.nodes?.[0]?.url || null,
-      shopifySku,
-      upc: match?.upc || upc,
-      matchStatus,
-      potentialUpc,
-      eldoradoSku: match?.eldoradoSku || null,
-      honeysplaceSku: match?.honeysplaceSku || null,
-      nalpacSku: match?.nalpacSku || null,
-      lockedSupplier: match?.lockedSupplier || null,
-      lowestCost,
-      defaultSupplier,
-      qtySold: qtySoldMap[product.id] || 0,
-    });
-  }
-
-  const paginated = products.slice((page - 1) * perPage, page * perPage);
+    const linkedCount = rows.filter((r) => r.matchStatus === "linked").length;
+    const potentialCount = rows.filter((r) => r.matchStatus === "potential").length;
+    const unmatchedCount = rows.filter((r) => r.matchStatus === "unmatched").length;
+    const paginated = rows.slice((page - 1) * perPage, page * perPage);
 
     return json({
       products: paginated,
-      total: products.length,
+      total: rows.length,
       page,
       perPage,
-      linkedCount: products.filter((p) => p.matchStatus === "linked").length,
-      potentialCount: products.filter((p) => p.matchStatus === "potential").length,
-      unmatchedCount: products.filter((p) => p.matchStatus === "unmatched").length,
+      linkedCount,
+      potentialCount,
+      unmatchedCount,
       dbError: false,
     });
   } catch (err) {
     console.error("Linked loader error:", err);
-    return json({ products: [], total: 0, page: 1, perPage: 50, linkedCount: 0, potentialCount: 0, unmatchedCount: 0, dbError: true });
+    return json({
+      products: [],
+      total: 0,
+      page: 1,
+      perPage: 50,
+      linkedCount: 0,
+      potentialCount: 0,
+      unmatchedCount: 0,
+      dbError: true,
+    });
   }
 }
 
-// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Action Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+// --- Action ---
 export async function action({ request }: ActionFunctionArgs) {
   const { session } = await authenticate.admin(request);
   const shop = await prisma.shop.findUnique({
@@ -184,18 +265,54 @@ export async function action({ request }: ActionFunctionArgs) {
   const intent = String(formData.get("intent"));
 
   if (intent === "confirm_link") {
+    // Link a single variant to its ProductMatch by UPC
     const shopifyProductId = String(formData.get("shopifyProductId"));
+    const shopifyVariantId = String(formData.get("shopifyVariantId"));
     const upc = String(formData.get("upc"));
+
     const match = await prisma.productMatch.findFirst({
       where: { shopId: shop.id, upc },
     });
     if (match) {
       await prisma.productMatch.update({
         where: { id: match.id },
-        data: { shopifyProductId, importedAt: new Date() },
+        data: {
+          shopifyProductId,
+          shopifyVariantId,
+          importedAt: new Date(),
+        },
       });
     }
     return json({ success: true });
+  }
+
+  if (intent === "auto_link_all") {
+    // Bulk auto-link: for every potential match, set shopifyProductId + shopifyVariantId
+    const pairs = String(formData.get("pairs"));
+    let linked = 0;
+    try {
+      const items: { productId: string; variantId: string; upc: string }[] = JSON.parse(pairs);
+      for (const item of items) {
+        const match = await prisma.productMatch.findFirst({
+          where: { shopId: shop.id, upc: item.upc, shopifyProductId: null },
+        });
+        if (match) {
+          await prisma.productMatch.update({
+            where: { id: match.id },
+            data: {
+              shopifyProductId: item.productId,
+              shopifyVariantId: item.variantId,
+              importedAt: new Date(),
+            },
+          });
+          linked++;
+        }
+      }
+    } catch (err) {
+      console.error("Auto-link error:", err);
+      return json({ error: String(err) });
+    }
+    return json({ success: true, linked });
   }
 
   if (intent === "lock_supplier") {
@@ -222,11 +339,12 @@ const supplierLabel: Record<string, string> = {
   nalpac: "Nalpac",
 };
 
-// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Component Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+// --- Component ---
 export default function LinkedProductsPage() {
   const { products, total, page, perPage, linkedCount, potentialCount, unmatchedCount, dbError } =
     useLoaderData<typeof loader>();
   const fetcher = useFetcher();
+  const [autoLinkDone, setAutoLinkDone] = useState(false);
 
   const statusIcon = (status: string) => {
     if (status === "linked")
@@ -236,145 +354,188 @@ export default function LinkedProductsPage() {
     return <Icon source={XCircleIcon} tone="critical" />;
   };
 
-  const shopifyAdminBase = `https://${typeof window !== "undefined" ? window.location.hostname.replace("admin.", "") : ""}/admin`;
-
-  const rowMarkup = products.map((p, index) => (
-    <IndexTable.Row id={p.shopifyProductId} key={p.shopifyProductId} position={index}>
-      <IndexTable.Cell>
-        <Thumbnail source={p.imageUrl || ""} alt={p.title} size="small" />
-      </IndexTable.Cell>
-
-      {/* Title - linked to product detail page if matched, Shopify admin otherwise */}
-      <IndexTable.Cell>
-        <BlockStack gap="050">
-          {p.matchStatus === "linked" && p.upc ? (
-            <Link to={`/app/products/${p.upc}`}>
-              <Text as="span" variant="bodyMd" fontWeight="semibold">
-                {p.title}
-              </Text>
-            </Link>
-          ) : (
-            <a
-              href={`${shopifyAdminBase}/products/${p.shopifyProductId.split("/").pop()}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <Text as="span" variant="bodyMd" fontWeight="semibold">
-                {p.title}
-              </Text>
-            </a>
-          )}
-          <Text as="span" variant="bodySm" tone="subdued">
-            {p.shopifySku ? `SKU: ${p.shopifySku}` : "No SKU"}
-            {p.upc ? ` | UPC: ${p.upc}` : ""}
-          </Text>
-        </BlockStack>
-      </IndexTable.Cell>
-
-      <IndexTable.Cell>
-        <Badge tone={p.status === "ACTIVE" ? "success" : "attention"}>
-          {p.status}
-        </Badge>
-      </IndexTable.Cell>
-
-      <IndexTable.Cell>
-        <InlineStack gap="200" blockAlign="center">
-          {statusIcon(p.matchStatus)}
-          {p.matchStatus === "linked" && <Badge tone="success">Linked</Badge>}
-          {p.matchStatus === "potential" && <Badge tone="attention">Potential Match</Badge>}
-          {p.matchStatus === "unmatched" && <Badge tone="critical">No Match</Badge>}
-        </InlineStack>
-      </IndexTable.Cell>
-
-      <IndexTable.Cell>
-        {p.lowestCost != null ? (
-          <Text as="span">${Number(p.lowestCost).toFixed(2)}</Text>
-        ) : (
-          <Text as="span" tone="subdued">—</Text>
-        )}
-      </IndexTable.Cell>
-
-      <IndexTable.Cell>
-        {p.matchStatus === "linked" ? (
-          <Select
-            label=""
-            labelHidden
-            options={[
-              { label: "Auto (Cheapest)", value: "auto" },
-              ...(p.eldoradoSku ? [{ label: "Eldorado", value: "eldorado" }] : []),
-              ...(p.honeysplaceSku ? [{ label: "Honey's Place", value: "honeysplace" }] : []),
-              ...(p.nalpacSku ? [{ label: "Nalpac", value: "nalpac" }] : []),
-            ]}
-            value={p.lockedSupplier || "auto"}
-            onChange={(value) => {
-              const fd = new FormData();
-              fd.append("intent", "lock_supplier");
-              fd.append("upc", p.upc);
-              fd.append("supplier", value);
-              fetcher.submit(fd, { method: "POST" });
-            }}
-          />
-        ) : (
-          <Text as="span" tone="subdued">--</Text>
-        )}
-      </IndexTable.Cell>
-
-      <IndexTable.Cell>
-        <Text as="span">{p.qtySold > 0 ? p.qtySold : "—"}</Text>
-      </IndexTable.Cell>
-
-      <IndexTable.Cell>
-        {p.matchStatus === "potential" && (
-          <Button
-            size="slim"
-            onClick={() => {
-              const fd = new FormData();
-              fd.append("intent", "confirm_link");
-              fd.append("shopifyProductId", p.shopifyProductId);
-              fd.append("upc", p.potentialUpc || "");
-              fetcher.submit(fd, { method: "POST" });
-            }}
-          >
-            Confirm Link
-          </Button>
-        )}
-      </IndexTable.Cell>
-    </IndexTable.Row>
-  ));
+  const handleAutoLinkAll = () => {
+    const potentials = products.filter((p) => p.matchStatus === "potential" && p.upc);
+    const pairs = potentials.map((p) => ({
+      productId: p.shopifyProductId,
+      variantId: p.shopifyVariantId,
+      upc: p.upc,
+    }));
+    const fd = new FormData();
+    fd.append("intent", "auto_link_all");
+    fd.append("pairs", JSON.stringify(pairs));
+    fetcher.submit(fd, { method: "POST" });
+    setAutoLinkDone(true);
+  };
 
   if (dbError) {
     return (
       <Page title="Linked Products">
         <Banner tone="warning" title="Could not load linked products">
-          <p>Product linking data could not be loaded. Please reload the page.</p>
+          <p>
+            There was a problem loading product data. This can happen if your store
+            hasn't synced supplier catalogs yet. Please go to the Sync page and run a
+            catalog sync first, then reload this page.
+          </p>
         </Banner>
       </Page>
     );
   }
 
+  const rowMarkup = products.map((p, index) => {
+    const displayTitle = p.variantTitle
+      ? `${p.productTitle} - ${p.variantTitle}`
+      : p.productTitle;
+
     return (
+      <IndexTable.Row
+        id={`${p.shopifyVariantId}`}
+        key={`${p.shopifyVariantId}`}
+        position={index}
+      >
+        <IndexTable.Cell>
+          <Thumbnail source={p.imageUrl || ""} alt={displayTitle} size="small" />
+        </IndexTable.Cell>
+
+        <IndexTable.Cell>
+          <BlockStack gap="050">
+            <Text as="span" variant="bodyMd" fontWeight="semibold">
+              {displayTitle}
+            </Text>
+            <Text as="span" variant="bodySm" tone="subdued">
+              {p.shopifySku ? `SKU: ${p.shopifySku}` : "No SKU"}
+              {p.upc ? ` | UPC: ${p.upc}` : " | No barcode"}
+            </Text>
+          </BlockStack>
+        </IndexTable.Cell>
+
+        <IndexTable.Cell>
+          <InlineStack gap="200" blockAlign="center">
+            {statusIcon(p.matchStatus)}
+            {p.matchStatus === "linked" && <Badge tone="success">Linked</Badge>}
+            {p.matchStatus === "potential" && <Badge tone="attention">Match Found</Badge>}
+            {p.matchStatus === "unmatched" && (
+              <Tooltip content={p.upc ? "No supplier carries this UPC" : "Add a barcode/UPC to this variant in Shopify to enable matching"}>
+                <Badge tone="critical">No Match</Badge>
+              </Tooltip>
+            )}
+          </InlineStack>
+        </IndexTable.Cell>
+
+        <IndexTable.Cell>
+          <BlockStack gap="050">
+            {p.eldoradoSku && (
+              <Text as="span" variant="bodySm">Eldorado: {p.eldoradoSku}</Text>
+            )}
+            {p.honeysplaceSku && (
+              <Text as="span" variant="bodySm">HP: {p.honeysplaceSku}</Text>
+            )}
+            {p.nalpacSku && (
+              <Text as="span" variant="bodySm">Nalpac: {p.nalpacSku}</Text>
+            )}
+            {!p.eldoradoSku && !p.honeysplaceSku && !p.nalpacSku && (
+              <Text as="span" tone="subdued">--</Text>
+            )}
+          </BlockStack>
+        </IndexTable.Cell>
+
+        <IndexTable.Cell>
+          {p.lowestCost != null ? (
+            <BlockStack gap="050">
+              <Text as="span">${Number(p.lowestCost).toFixed(2)}</Text>
+              {p.defaultSupplier && (
+                <Text as="span" variant="bodySm" tone="subdued">
+                  {supplierLabel[p.defaultSupplier] || p.defaultSupplier}
+                </Text>
+              )}
+            </BlockStack>
+          ) : (
+            <Text as="span" tone="subdued">--</Text>
+          )}
+        </IndexTable.Cell>
+
+        <IndexTable.Cell>
+          <Text as="span">{p.qtySold > 0 ? p.qtySold : "--"}</Text>
+        </IndexTable.Cell>
+
+        <IndexTable.Cell>
+          {p.matchStatus === "potential" && (
+            <Button
+              size="slim"
+              onClick={() => {
+                const fd = new FormData();
+                fd.append("intent", "confirm_link");
+                fd.append("shopifyProductId", p.shopifyProductId);
+                fd.append("shopifyVariantId", p.shopifyVariantId);
+                fd.append("upc", p.upc);
+                fetcher.submit(fd, { method: "POST" });
+              }}
+            >
+              Link
+            </Button>
+          )}
+        </IndexTable.Cell>
+      </IndexTable.Row>
+    );
+  });
+
+  return (
     <Page
       title="Linked Products"
-      subtitle="Your Shopify products and their IntimaSync supplier connections"
+      subtitle={`${total} variants across your Shopify products`}
+      primaryAction={
+        potentialCount > 0 && !autoLinkDone
+          ? {
+              content: `Auto-Link ${potentialCount} Match${potentialCount !== 1 ? "es" : ""}`,
+              onAction: handleAutoLinkAll,
+            }
+          : undefined
+      }
     >
       <Layout>
+        <Layout.Section>
+          <InlineStack gap="400">
+            <Badge tone="success">{linkedCount} Linked</Badge>
+            <Badge tone="attention">{potentialCount} Potential</Badge>
+            <Badge tone="critical">{unmatchedCount} Unmatched</Badge>
+          </InlineStack>
+        </Layout.Section>
+
         {potentialCount > 0 && (
           <Layout.Section>
             <Banner
-              tone="warning"
-              title={`${potentialCount} product${potentialCount !== 1 ? "s" : ""} with potential supplier matches`}
+              tone="info"
+              title={`${potentialCount} variant${potentialCount !== 1 ? "s" : ""} can be auto-linked by UPC`}
             >
-              Review and confirm the matches below to enable automatic order routing.
+              These Shopify variants have barcodes that match products in your supplier catalogs.
+              Click "Auto-Link" above to connect them all at once, or link individually using the
+              buttons in the table.
             </Banner>
           </Layout.Section>
         )}
-        {unmatchedCount > 0 && (
+
+        {autoLinkDone && (
           <Layout.Section>
             <Banner
-              tone="critical"
-              title={`${unmatchedCount} product${unmatchedCount !== 1 ? "s" : ""} not found at any supplier`}
+              tone="success"
+              title="Auto-linking complete"
+              action={{ content: "Reload page", url: "/app/products/linked" }}
             >
-              These products may have been discontinued or have missing UPCs.
+              Products have been linked. Reload to see updated status and run an inventory sync
+              to push quantities to Shopify.
+            </Banner>
+          </Layout.Section>
+        )}
+
+        {unmatchedCount > 0 && unmatchedCount === total && (
+          <Layout.Section>
+            <Banner
+              tone="warning"
+              title="No matches found"
+            >
+              None of your Shopify variants matched supplier catalog products. Make sure your
+              Shopify product variants have UPC barcodes set, and that you've synced supplier
+              catalogs from the Sync page.
             </Banner>
           </Layout.Section>
         )}
@@ -382,35 +543,36 @@ export default function LinkedProductsPage() {
         <Layout.Section>
           <Card padding="0">
             <IndexTable
-              resourceName={{ singular: "product", plural: "products" }}
+              resourceName={{ singular: "variant", plural: "variants" }}
               itemCount={total}
               headings={[
                 { title: "" },
-                { title: "Product" },
-                { title: "Shopify Status" },
+                { title: "Product / Variant" },
                 { title: "Link Status" },
-                { title: "Cost" },
-                { title: "Fulfillment" },
+                { title: "Supplier SKUs" },
+                { title: "Best Cost" },
                 { title: "Qty Sold (90d)" },
-                { title: "Actions" },
+                { title: "" },
               ]}
               selectable={false}
             >
               {rowMarkup}
             </IndexTable>
           </Card>
-          <div style={{ display: "flex", justifyContent: "center", marginTop: "16px" }}>
-            <Pagination
-              hasPrevious={page > 1}
-              onPrevious={() => {
-                window.location.href = `/app/products/linked?page=${page - 1}`;
-              }}
-              hasNext={page * perPage < total}
-              onNext={() => {
-                window.location.href = `/app/products/linked?page=${page + 1}`;
-              }}
-            />
-          </div>
+          {total > perPage && (
+            <div style={{ display: "flex", justifyContent: "center", marginTop: "16px" }}>
+              <Pagination
+                hasPrevious={page > 1}
+                onPrevious={() => {
+                  window.location.href = `/app/products/linked?page=${page - 1}`;
+                }}
+                hasNext={page * perPage < total}
+                onNext={() => {
+                  window.location.href = `/app/products/linked?page=${page + 1}`;
+                }}
+              />
+            </div>
+          )}
         </Layout.Section>
       </Layout>
     </Page>
