@@ -39,6 +39,18 @@ export interface HoneysPlaceOrderRequest {
   shipBy: string; // see Appendix A codes
   date: string; // MM/DD/YY
   items: HoneysPlaceOrderItem[];
+  // Shipping address (required by HP API)
+  lastName: string;
+  firstName: string;
+  address1: string;
+  address2?: string;
+  city: string;
+  state: string;
+  zip: string;
+  country: string;
+  phone?: string;
+  email?: string;
+  instructions?: string;
 }
 
 export interface HoneysPlaceOrderResponse {
@@ -184,6 +196,17 @@ export async function submitOrder(
   <items>
     ${itemsXml}
   </items>
+  <last>${order.lastName || ""}</last>
+  <first>${order.firstName || ""}</first>
+  <address1>${order.address1 || ""}</address1>
+  <address2>${order.address2 || ""}</address2>
+  <city>${order.city || ""}</city>
+  <state>${order.state || ""}</state>
+  <zip>${order.zip || ""}</zip>
+  <country>${order.country || "US"}</country>
+  <phone>${order.phone || ""}</phone>
+  <emailaddress>${order.email || ""}</emailaddress>
+  <instructions>${order.instructions || ""}</instructions>
 </order>`
   );
 
@@ -261,7 +284,8 @@ export async function checkOrderStatus(
 
 /**
  * Build the data feed URL from credentials
- * HP feed format: https://www.honeysplace.com/DataFeed/json?account=ACCOUNT&token=FEEDTOKEN
+ * HP feed format: https://www.honeysplace.com/df/FEEDTOKEN/json
+ * Note: The older DataFeed/json?account=X&token=Y format returns 404 as of 2026.
  */
 export function buildFeedUrl(credentials: HoneysPlaceCredentials): string {
   // Use the full URL if pasted directly from HP portal (My Account > Data Integration > Data Feeds)
@@ -270,10 +294,7 @@ export function buildFeedUrl(credentials: HoneysPlaceCredentials): string {
   }
   const token = credentials.feedToken || credentials.apiToken;
   if (!token) throw new Error("Honey's Place: no feed token or API token in credentials");
-  // Try account-based URL first (more reliable), fall back to token-only
-  if (credentials.account) {
-    return `https://www.honeysplace.com/DataFeed/json?account=${encodeURIComponent(credentials.account)}&token=${encodeURIComponent(token)}`;
-  }
+  // Use the df/TOKEN/json format (the DataFeed/json?account=X&token=Y format is deprecated/404)
   return `https://www.honeysplace.com/df/${encodeURIComponent(token)}/json`;
 }
 
