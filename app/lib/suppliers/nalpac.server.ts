@@ -287,7 +287,7 @@ export async function placeOrder(
   order: NalpacOrderRequest
 ): Promise<NalpacOrderResponse> {
   const baseUrl = getBaseUrl(credentials);
-  const url = `${baseUrl}/api/orders`;
+  const url = `${baseUrl}/api/order`;
 
   const payload = {
     poNumber: order.poNumber,
@@ -344,7 +344,7 @@ export async function getOrderStatus(
   shippedAt?: string;
 }> {
   const baseUrl = getBaseUrl(credentials);
-  const url = `${baseUrl}/api/orders/${encodeURIComponent(orderId)}`;
+  const url = `${baseUrl}/api/order/${encodeURIComponent(orderId)}`;
 
   const response = await fetch(url, {
     headers: {
@@ -389,11 +389,64 @@ export async function validateCredentials(
 // These are common Nalpac shipping codes Ã¢ÂÂ verify with actual API docs
 
 export const SHIPPING_METHODS = [
-  { code: "GROUND", label: "UPS Ground" },
-  { code: "2DAY", label: "UPS 2nd Day Air" },
-  { code: "OVERNIGHT", label: "UPS Next Day Air" },
-  { code: "USPS_PRIORITY", label: "USPS Priority Mail" },
-  { code: "USPS_GROUND", label: "USPS Ground Advantage" },
-  { code: "FEDEX_GROUND", label: "FedEx Ground" },
-  { code: "BESTWAY", label: "Best Way (Cheapest)" },
+  { code: "131966", label: "CHEAPEST Method" },
+  { code: "133481", label: "Best Rate Standard" },
+  { code: "137490", label: "Best Rate UPS/FedEx" },
+  { code: "100002", label: "UPS Ground" },
+  { code: "129312", label: "FedEx Home Delivery" },
+  { code: "100003", label: "FedEx Ground Service" },
+  { code: "121349", label: "UPS 2nd Day Air" },
+  { code: "128082", label: "FedEx 2nd Day" },
+  { code: "121346", label: "UPS Next Day Air" },
+  { code: "121347", label: "UPS Next Day Air Saver" },
+  { code: "125816", label: "Priority Mail" },
+  { code: "141850", label: "USPS Ground Advantage" },
+  { code: "142922", label: "Endicia Ground Advantage" },
+  { code: "142923", label: "Endicia Priority" },
+  { code: "133483", label: "Best Rate 2nd Day" },
+  { code: "133482", label: "Best Rate Next Day" },
+  { code: "137260", label: "Best Rate Expedited" },
+  { code: "137261", label: "Best Rate Overnight" },
+  { code: "133795", label: "Best Rate 3 Day" },
 ];
+
+// Full carrier code lookup (all codes from Nalpac, Oct 2025)
+export const NALPAC_CARRIER_CODES: Record<string, string> = {
+  "131966": "CHEAPEST Method",
+  "133481": "Best Rate Standard",
+  "133483": "Best Rate 2nd Day",
+  "133486": "Best Rate 2nd Day International",
+  "133795": "Best Rate 3 Day",
+  "137260": "Best Rate Expedited",
+  "133482": "Best Rate Next Day",
+  "133485": "Best Rate Next Day International",
+  "137261": "Best Rate Overnight",
+  "137490": "Best Rate UPS/Fedex",
+  "133484": "Best Rate Standard International",
+  "100002": "UPS Ground",
+  "100003": "FedEx Ground Service",
+  "100005": "USPS",
+  "121346": "UPS Next Day Air",
+  "100011": "UPS Next Day Air Early AM",
+  "121347": "UPS Next Day Air Saver",
+  "121348": "UPS 2nd Day Air AM",
+  "121349": "UPS 2nd Day Air",
+  "121350": "UPS 3 Day Select",
+  "125211": "FedEx Express Saver",
+  "125212": "FedEx Standard Overnight",
+  "125816": "Priority Mail",
+  "125904": "UPS Standard",
+  "128082": "FedEx 2nd Day",
+  "129312": "FedEx Home Delivery",
+  "130765": "Fed Ex Freight",
+  "131818": "PRIORITY MAIL 1-DAY",
+  "131819": "PRIORITY MAIL 2-DAY",
+  "131820": "PRIORITY MAIL 3-DAY",
+  "131398": "Priority Mail Express",
+  "136663": "FedEx Priority Overnight",
+  "141850": "USPS Ground Advantage",
+  "142922": "Endicia Ground Advantage",
+  "142923": "Endicia Priority",
+  "142924": "Endicia Express",
+  "143097": "FedEx One Rate",
+};
