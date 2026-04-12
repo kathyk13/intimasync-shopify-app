@@ -3,25 +3,21 @@
  * Shows all supplier-routed orders and their statuses
  */
 
-import { json, type LoaderFunctionArgs } from "@remix-run/node";
-import { useLoaderData, Link, useNavigate } from "@remix-run/react";
+import { json, type LoaderFunctionArgs, type ActionFunctionArgs } from "@remix-run/node";
+import { useLoaderData, useNavigate, useFetcher } from "@remix-run/react";
 import {
   Page,
   Layout,
   Card,
   DataTable,
-  Text,
   Badge,
-  BlockStack,
-  InlineStack,
   EmptyState,
-  Button,
   Pagination,
-  Select,
   Banner,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import { routeOrder, type LineItemInput } from "../lib/order-routing.server";
 import { useState } from "react";
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -61,6 +57,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
           supplierOrderRef: l.supplierOrderRef || null,
           status: l.status,
           trackingNumber: l.trackingNumber,
+          trackingUrl: l.trackingUrl || null,
         })),
       })),
       total,
@@ -72,6 +69,89 @@ export async function loader({ request }: LoaderFunctionArgs) {
     console.error("Orders loader error:", err);
     return json({ orders: [], total: 0, page, perPage, dbError: true });
   }
+}
+
+// --- Action: Backfill existing Shopify orders into IntimaSync ---
+export async function action({ request }: ActionFunctionArgs) {
+  const { admin, session } = await authenticate.admin(request);
+  const shop = await prisma.shop.findUnique({
+    where: { shopifyDomain: session.shop },
+  });
+  if (!shop) return json({ error: "Shop not found" });
+
+  const formData = await request.formData();
+  const intent = String(formData.get("intent"));
+
+  if (intent === "backfill_orders") {
+    try {
+      // Fetch recent orders from Shopify that aren't already in IntimaSync
+      const response = await admin.graphql(`
+        query {
+          orders(first: 50, sortKey: CREATED_AT, reverse: true) {
+            nodes {
+              id
+              name
+              lineItems(first: 50) {
+                nodes {
+                  id
+                  quantity
+                  title
+                  variant {
+                    id
+                  }
+                  product {
+                    id
+                  }
+                }
+              }
+            }
+          }
+        }
+      `);
+      const data = await response.json();
+      const shopifyOrders = data.data?.orders?.nodes || [];
+
+      let imported = 0;
+      let skipped = 0;
+
+      for (const order of shopifyOrders) {
+        // Skip if already routed
+        const existing = await prisma.orderRouting.findFirst({
+          where: { shopId: shop.id, shopifyOrderId: order.id },
+        });
+        if (existing) {
+          skipped++;
+          continue;
+        }
+
+        const lineItems: LineItemInput[] = (order.lineItems?.nodes || [])
+          .filter((li: any) => li.product?.id && li.variant?.id)
+          .map((li: any) => ({
+            shopifyLineItemId: li.id,
+            shopifyVariantId: li.variant.id,
+            shopifyProductId: li.product.id,
+            quantity: li.quantity,
+            title: li.title || "",
+          }));
+
+        if (lineItems.length === 0) continue;
+
+        try {
+          await routeOrder(shop.id, order.id, order.name || "", lineItems);
+          imported++;
+        } catch (err) {
+          console.error(`Backfill error for order ${order.name}:`, err);
+        }
+      }
+
+      return json({ success: true, imported, skipped });
+    } catch (err) {
+      console.error("Backfill action error:", err);
+      return json({ error: String(err) });
+    }
+  }
+
+  return json({ error: "Unknown intent" });
 }
 
 function statusTone(status: string): "success" | "attention" | "critical" | "info" | undefined {
@@ -87,6 +167,21 @@ function statusTone(status: string): "success" | "attention" | "critical" | "inf
 export default function OrdersPage() {
   const { orders, total, page, perPage, dbError } = useLoaderData<typeof loader>();
   const navigate = useNavigate();
+  const fetcher = useFetcher<{ success?: boolean; imported?: number; skipped?: number; error?: string }>();
+  const [backfillDone, setBackfillDone] = useState(false);
+
+  const isBackfilling = fetcher.state !== "idle";
+  const backfillResult = fetcher.data;
+
+  // Show success banner after backfill completes
+  if (backfillResult?.success && !backfillDone) {
+    setBackfillDone(true);
+  }
+
+  function handleBackfill() {
+    setBackfillDone(false);
+    fetcher.submit({ intent: "backfill_orders" }, { method: "POST" });
+  }
 
   if (dbError) {
     return (
@@ -100,17 +195,57 @@ export default function OrdersPage() {
 
   if (orders.length === 0) {
     return (
-      <Page title="Orders">
-        <EmptyState
-          heading="No orders routed yet"
-          image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
-        >
-          <p>
-            When customers place orders in your Shopify store, IntimaSync will
-            automatically route them to the correct supplier. Routed orders will
-            appear here.
-          </p>
-        </EmptyState>
+      <Page
+        title="Orders"
+        primaryAction={{
+          content: isBackfilling ? "Importing..." : "Import Existing Orders",
+          onAction: handleBackfill,
+          loading: isBackfilling,
+          disabled: isBackfilling,
+        }}
+      >
+        <Layout>
+          <Layout.Section>
+            {backfillDone && backfillResult?.success && (
+              <Banner
+                tone="success"
+                title="Order import complete"
+                onDismiss={() => setBackfillDone(false)}
+              >
+                <p>
+                  Imported {backfillResult.imported} order{backfillResult.imported !== 1 ? "s" : ""}.
+                  {backfillResult.skipped ? ` ${backfillResult.skipped} already existed and were skipped.` : ""}
+                  {backfillResult.imported && backfillResult.imported > 0 ? " Reload the page to see them." : ""}
+                </p>
+              </Banner>
+            )}
+            {backfillResult?.error && (
+              <Banner tone="critical" title="Import failed">
+                <p>{backfillResult.error}</p>
+              </Banner>
+            )}
+            <EmptyState
+              heading="No orders routed yet"
+              image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
+              action={{
+                content: isBackfilling ? "Importing..." : "Import Existing Orders",
+                onAction: handleBackfill,
+                loading: isBackfilling,
+                disabled: isBackfilling,
+              }}
+            >
+              <p>
+                When customers place orders in your Shopify store, IntimaSync will
+                automatically route them to the correct supplier. Routed orders will
+                appear here.
+              </p>
+              <p>
+                Already have orders? Click "Import Existing Orders" to pull in your
+                recent Shopify orders and route them to suppliers.
+              </p>
+            </EmptyState>
+          </Layout.Section>
+        </Layout>
       </Page>
     );
   }
@@ -134,7 +269,7 @@ export default function OrdersPage() {
       suppliers.join(", "),
       <Badge tone={statusTone(order.status)}>{order.status}</Badge>,
       order.lines.map((l) => l.supplierOrderRef).filter(Boolean).join(", ") || "—",
-      tracking.length > 0 ? tracking : "â",
+      tracking.length > 0 ? tracking : "—",
       new Date(order.createdAt).toLocaleDateString(),
     ];
   });
@@ -143,8 +278,34 @@ export default function OrdersPage() {
     <Page
       title="Orders"
       subtitle={`${total.toLocaleString()} orders routed to suppliers`}
+      primaryAction={{
+        content: isBackfilling ? "Importing..." : "Import Orders",
+        onAction: handleBackfill,
+        loading: isBackfilling,
+        disabled: isBackfilling,
+      }}
     >
       <Layout>
+        <Layout.Section>
+          {backfillDone && backfillResult?.success && (
+            <Banner
+              tone="success"
+              title="Order import complete"
+              onDismiss={() => setBackfillDone(false)}
+            >
+              <p>
+                Imported {backfillResult.imported} order{backfillResult.imported !== 1 ? "s" : ""}.
+                {backfillResult.skipped ? ` ${backfillResult.skipped} already existed and were skipped.` : ""}
+                {backfillResult.imported && backfillResult.imported > 0 ? " Reload the page to see them." : ""}
+              </p>
+            </Banner>
+          )}
+          {backfillResult?.error && (
+            <Banner tone="critical" title="Import failed">
+              <p>{backfillResult.error}</p>
+            </Banner>
+          )}
+        </Layout.Section>
         <Layout.Section>
           <Card padding="0">
             <DataTable

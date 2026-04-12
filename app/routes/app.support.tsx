@@ -115,7 +115,7 @@ export default function SupportPage() {
                     a: "Yes - Entrenue was acquired by Nalpac's parent company in 2022 and its catalog is now accessible through your existing Nalpac credentials. No separate setup is needed.",
                   },
                   {
-                    q: "Hgw do I add Sex Toy Distributing / XR Direct?",
+                    q: "How do I add Sex Toy Distributing / XR Direct?",
                     a: "Go to Settings and enter your STD and XR Direct credentials separately. STD provides the catalog, and XR Direct handles order submission. Both accounts are required.",
                   },
                 ].map(({ q, a }) => (
