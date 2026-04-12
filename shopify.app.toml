@@ -21,6 +21,27 @@ api_version = "2024-10"
   topics = ["app/uninstalled"]
   uri = "/webhooks/app/uninstalled"
 
+  [[webhooks.subscriptions]]
+  topics = ["orders/create"]
+  uri = "/webhooks/orders/create"
+
+  # GDPR mandatory webhooks (required for Shopify App Store)
+  [[webhooks.subscriptions]]
+  topics = ["customers/data_request"]
+  uri = "/webhooks/gdpr/customers-data-request"
+
+  [[webhooks.subscriptions]]
+  topics = ["customers/redact"]
+  uri = "/webhooks/gdpr/customers-redact"
+
+  [[webhooks.subscriptions]]
+  topics = ["shop/redact"]
+  uri = "/webhooks/gdpr/shop-redact"
+
+[app_proxy]
+# Privacy policy accessible without Shopify auth
+url = "https://intimasync-backend.onrender.com/privacy"
+
 [pos]
 embedded = false
 
