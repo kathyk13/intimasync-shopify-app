@@ -181,8 +181,16 @@ const supplierFAQ: Record<string, { question: string; answer: string }[]> = {
   ],
   nalpac: [
     {
-      question: "Where do I find my Nalpac credentials?",
-      answer: "Use the same username and password you use to log in to nalpac.com. If you don't have an account, apply at nalpac.com/apply.",
+      question: "Where do I find my Customer ID?",
+      answer: "Log in to your Nalpac dashboard at nalpac.com. Your Customer ID is the numeric value shown after 'Account:' (e.g. 142959). This is NOT your email address.",
+    },
+    {
+      question: "Where do I find my API Password?",
+      answer: "Your API Password is provided by Nalpac when your API access is approved. It may match your wholesale login password, but it is issued separately. Contact your Nalpac rep if you have not received it.",
+    },
+    {
+      question: "My login works on nalpac.com but the test fails here. Why?",
+      answer: "The Nalpac API (api2.nalpac.com) requires your numeric Customer ID as the username, not your email. If your test fails, double-check you have entered the Customer ID (e.g. 142959), not support@yourdomain.com.",
     },
   ],
 };
@@ -260,8 +268,8 @@ export default function SettingsPage() {
             <SupplierSection supplier="nalpac" title="Nalpac" subtitle="nalpac.com" existing={nalpac} shippingOptions={nalpacShippingOptions}
               faq={supplierFAQ.nalpac}
               fields={[
-                { name: "username", label: "Username", type: "text" },
-                { name: "password", label: "Password", type: "password" },
+                { name: "username", label: "Customer ID", type: "text", placeholder: "e.g. 142959 (numeric, from Nalpac dashboard)" },
+                { name: "password", label: "API Password", type: "password", placeholder: "Issued by Nalpac when API access is approved" },
               ]}
             />
           </div>
