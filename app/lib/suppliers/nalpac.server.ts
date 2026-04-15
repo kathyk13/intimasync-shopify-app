@@ -1,24 +1,28 @@
 /**
  * Nalpac API Integration
- * API docs: https://api2.nalpac.com/Help
- * Format: REST, JSON
- * Auth: username + password (HTTP Basic Auth)
+ * Official docs: https://www.nalpac.com/pages/api-documentation (login required)
+ * Base URL: https://api2.nalpac.com
+ * Format: REST + JSON
+ * Auth: HTTP Basic with CustomerId:ApiPassword
+ *
+ * LocationId parameter: 15 = Nalpac, 25 = Entrenue (omitting defaults to 15)
  */
 
-// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Types Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+// --- Types ---
 
 export interface NalpacCredentials {
-  username: string;
-  password: string;
-  baseUrl?: string; // defaults to https://api2.nalpac.com
+  username: string;  // Nalpac Customer ID (numeric, e.g. "142959")
+  password: string;  // API password provided by Nalpac
+  baseUrl?: string;  // defaults to https://api2.nalpac.com
+  includeEntrenue?: boolean; // if true, also pulls LocationId=25 catalog
 }
 
 export interface NalpacProduct {
-  sku: string;          // Nalpac item number
+  sku: string;
   upc: string;
   title: string;
   description: string;
-  cost: number;         // wholesale price
+  cost: number;
   msrp: number;
   inventoryQty: number;
   category: string;
@@ -30,6 +34,7 @@ export interface NalpacProduct {
     width?: number;
     depth?: number;
   };
+  locationId?: number; // 15 = Nalpac, 25 = Entrenue
 }
 
 export interface NalpacOrderItem {
@@ -39,17 +44,22 @@ export interface NalpacOrderItem {
 
 export interface NalpacOrderRequest {
   poNumber: string;
-  shippingMethod: string;
+  shippingOptionId: number;      // numeric carrier ID from /api/carrier
   shipToName: string;
   shipToAddress1: string;
   shipToAddress2?: string;
+  shipToAddress3?: string;
   shipToCity: string;
   shipToState: string;
   shipToZip: string;
   shipToCountry: string;
   shipToPhone: string;
+  shipToEmail?: string;
   items: NalpacOrderItem[];
-  specialInstructions?: string;
+  orderNotes?: string;
+  deliveryInstructions?: string;
+  signatureRequired?: boolean;
+  orderDate?: string; // YYYY-MM-DD; defaults to today
 }
 
 export interface NalpacOrderResponse {
@@ -59,14 +69,16 @@ export interface NalpacOrderResponse {
   error?: string;
 }
 
-export interface NalpacStockItem {
-  itemNumber: string;
-  quantityAvailable: number;
+export interface NalpacCarrier {
+  id: number;
+  name: string;
 }
 
-// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Auth helper Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+// --- Auth helpers ---
 
 const DEFAULT_BASE_URL = "https://api2.nalpac.com";
+const LOCATION_NALPAC = 15;
+const LOCATION_ENTRENUE = 25;
 
 function getAuthHeader(credentials: NalpacCredentials): string {
   const encoded = Buffer.from(
@@ -79,117 +91,166 @@ function getBaseUrl(credentials: NalpacCredentials): string {
   return credentials.baseUrl || DEFAULT_BASE_URL;
 }
 
-// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Product Catalog Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+function jsonHeaders(credentials: NalpacCredentials): Record<string, string> {
+  return {
+    Authorization: getAuthHeader(credentials),
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+}
+
+// --- Product Catalog ---
 
 /**
- * Fetch Nalpac product catalog (paginated)
- * Endpoint varies by implementation Ã¢ÂÂ check https://api2.nalpac.com/Help
+ * Fetch a page of products for a specific location.
+ * GET /api/product?pageNumber=X&pageSize=Y&LocationId=Z
+ */
+async function fetchProductsForLocation(
+  credentials: NalpacCredentials,
+  page: number,
+  pageSize: number,
+  locationId: number
+): Promise<NalpacProduct[]> {
+  const baseUrl = getBaseUrl(credentials);
+  const url = `${baseUrl}/api/product?pageNumber=${page}&pageSize=${pageSize}&LocationId=${locationId}&stripDescriptionHTML=true&excludeDiscontinued=true`;
+
+  console.log(`[nalpac] fetchProducts: GET ${url}`);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      headers: {
+        Authorization: getAuthHeader(credentials),
+        Accept: "application/json",
+      },
+    });
+  } catch (netErr) {
+    throw new Error(`Nalpac: network error connecting to ${url}: ${netErr}`);
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    throw new Error(
+      `Nalpac authentication failed (HTTP ${response.status}). ` +
+      `Verify your Customer ID and API password in Settings. ` +
+      `Note: username must be your numeric Customer ID, not your email.`
+    );
+  }
+  if (!response.ok) {
+    throw new Error(
+      `Nalpac product fetch failed (HTTP ${response.status} from ${url}).`
+    );
+  }
+
+  const data = await response.json() as any;
+  const items = extractList(data);
+
+  console.log(
+    `[nalpac] fetchProducts: location=${locationId} page=${page} ` +
+    `received ${items.length} items`
+  );
+
+  return items.map((item: any) => mapNalpacProduct(item, locationId));
+}
+
+/**
+ * Fetch Nalpac product catalog (paginated). If credentials.includeEntrenue
+ * is true, also pulls the Entrenue catalog (LocationId=25) and concatenates.
  */
 export async function fetchProducts(
   credentials: NalpacCredentials,
   page = 1,
   pageSize = 500
 ): Promise<NalpacProduct[]> {
-  const baseUrl = getBaseUrl(credentials);
-  const headers = {
-    Authorization: getAuthHeader(credentials),
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  };
-
-  // Try multiple endpoints + pagination parameter styles
-  // Nalpac ASP.NET API may use pageNumber/pageSize, page/size, or $skip/$top
-  const endpoints = [
-    `${baseUrl}/api/product?pageNumber=${page}&pageSize=${pageSize}`,
-    `${baseUrl}/api/productV2?pageNumber=${page}&pageSize=${pageSize}`,
-    `${baseUrl}/api/product?page=${page}&size=${pageSize}`,
-    `${baseUrl}/api/productV2?page=${page}&size=${pageSize}`,
-    `${baseUrl}/api/product?$skip=${(page - 1) * pageSize}&$top=${pageSize}`,
-    `${baseUrl}/api/products?pageNumber=${page}&pageSize=${pageSize}`,
-  ];
-
-  let response: Response | null = null;
-  let lastStatus = 0;
-  let lastUrl = "";
-  console.log(`[nalpac] fetchProducts: trying ${endpoints.length} endpoints (page=${page})`);
-  for (const url of endpoints) {
-    let r: Response;
-    try {
-      r = await fetch(url, { headers });
-    } catch (netErr) {
-      throw new Error(`Nalpac: network error connecting to ${url}: ${netErr}`);
-    }
-    if (r.status === 401 || r.status === 403) {
-      throw new Error(
-        `Nalpac authentication failed (HTTP ${r.status}). ` +
-        `Check your username and password in Settings.`
-      );
-    }
-    if (r.ok) {
-      console.log(`[nalpac] fetchProducts: endpoint OK — ${url}`);
-      response = r;
-      break;
-    }
-    console.log(`[nalpac] fetchProducts: endpoint ${url} returned HTTP ${r.status}`);
-    lastStatus = r.status;
-    lastUrl = url;
-  }
-  if (!response) {
-    if (lastStatus === 404) {
-      throw new Error(
-        `Nalpac: no working product endpoint found (all returned 404). ` +
-        `The API path may have changed — contact Nalpac support for the correct endpoint.`
-      );
-    }
-    if (lastStatus >= 500) {
-      throw new Error(`Nalpac server error (HTTP ${lastStatus}). The Nalpac API may be temporarily down.`);
-    }
-    throw new Error(`Nalpac product fetch failed (HTTP ${lastStatus} from ${lastUrl}).`);
-  }
-
-  const data = await response.json() as any;
-
-  // Log response shape for debugging (visible in Render logs)
-  const isArr = Array.isArray(data);
-  const keys = data && typeof data === "object" && !isArr ? Object.keys(data) : [];
-  console.log(
-    `[nalpac] fetchProducts: response isArray=${isArr} keys=[${keys.join(",")}]` +
-    (keys.length > 0 ? ` sampleValues={${keys.map(k => `${k}:${typeof data[k]}`).join(",")}}` : "")
+  const nalpacItems = await fetchProductsForLocation(
+    credentials, page, pageSize, LOCATION_NALPAC
   );
-
-  // Try every common response envelope key (ASP.NET APIs vary in casing)
-  let items: any[];
-  if (isArr) {
-    items = data;
-  } else {
-    items =
-      data.items || data.Items ||
-      data.products || data.Products ||
-      data.data || data.Data ||
-      data.records || data.Records ||
-      data.results || data.Results ||
-      data.value || data.Value ||
-      [];
-    // If still empty and there's a single key that's an array, use it
-    if (items.length === 0 && keys.length > 0) {
-      const arrayKey = keys.find((k) => Array.isArray(data[k]));
-      if (arrayKey) {
-        console.log(`[nalpac] fetchProducts: using response key "${arrayKey}" (${data[arrayKey].length} items)`);
-        items = data[arrayKey];
-      }
-    }
+  if (!credentials.includeEntrenue) {
+    return nalpacItems;
   }
 
-  console.log(`[nalpac] fetchProducts: extracted ${items.length} items from response`);
-  if (items.length > 0) {
-    const sample = items[0];
-    console.log(`[nalpac] fetchProducts: first item keys=[${Object.keys(sample || {}).join(",")}]`);
-  }
-
-  return items.map((item: any) => mapNalpacProduct(item));
+  // Entrenue catalog
+  const entrenueItems = await fetchProductsForLocation(
+    credentials, page, pageSize, LOCATION_ENTRENUE
+  );
+  return [...nalpacItems, ...entrenueItems];
 }
 
-function mapNalpacProduct(item: any): NalpacProduct {
+/**
+ * GET /api/product/{sku}?LocationId=X
+ */
+export async function getProductBySku(
+  credentials: NalpacCredentials,
+  sku: string,
+  locationId: number = LOCATION_NALPAC
+): Promise<NalpacProduct | null> {
+  const baseUrl = getBaseUrl(credentials);
+  const url = `${baseUrl}/api/product/${encodeURIComponent(sku)}?LocationId=${locationId}&stripDescriptionHTML=true`;
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: getAuthHeader(credentials),
+      Accept: "application/json",
+    },
+  });
+
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(`Nalpac getProductBySku failed (HTTP ${response.status})`);
+  }
+  const data = await response.json() as any;
+  return mapNalpacProduct(data, locationId);
+}
+
+/**
+ * GET /api/product?upc={upc}&LocationId=X
+ */
+export async function getProductByUpc(
+  credentials: NalpacCredentials,
+  upc: string,
+  locationId: number = LOCATION_NALPAC
+): Promise<NalpacProduct | null> {
+  const baseUrl = getBaseUrl(credentials);
+  const url = `${baseUrl}/api/product?upc=${encodeURIComponent(upc)}&LocationId=${locationId}&stripDescriptionHTML=true`;
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: getAuthHeader(credentials),
+      Accept: "application/json",
+    },
+  });
+
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(`Nalpac getProductByUpc failed (HTTP ${response.status})`);
+  }
+  const data = await response.json() as any;
+
+  // UPC endpoint may return a single object or a list; normalize
+  const items = extractList(data);
+  if (items.length === 0 && data && typeof data === "object" && !Array.isArray(data)) {
+    return mapNalpacProduct(data, locationId);
+  }
+  return items.length > 0 ? mapNalpacProduct(items[0], locationId) : null;
+}
+
+function extractList(data: any): any[] {
+  if (Array.isArray(data)) return data;
+  if (!data || typeof data !== "object") return [];
+  const keys = Object.keys(data);
+  const candidate =
+    data.items || data.Items ||
+    data.products || data.Products ||
+    data.data || data.Data ||
+    data.results || data.Results ||
+    data.records || data.Records ||
+    data.value || data.Value;
+  if (Array.isArray(candidate)) return candidate;
+  // Fallback: find the first array-valued property
+  const arrayKey = keys.find((k) => Array.isArray(data[k]));
+  return arrayKey ? data[arrayKey] : [];
+}
+
+function mapNalpacProduct(item: any, locationId: number): NalpacProduct {
   return {
     sku: String(item.itemNumber || item.sku || item.SKU || item.ItemNumber || ""),
     upc: String(item.upc || item.UPC || item.barcode || ""),
@@ -218,61 +279,30 @@ function mapNalpacProduct(item: any): NalpacProduct {
       width: item.width ? parseFloat(String(item.width)) : undefined,
       depth: item.depth || item.length ? parseFloat(String(item.depth || item.length)) : undefined,
     },
+    locationId,
   };
 }
 
-// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Inventory Check Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+// --- Inventory ---
+// Nalpac v2 docs do not expose a separate /api/inventory endpoint; inventory
+// is the `quantityAvailable` field on the product response. Use getProductBySku
+// per SKU or fetchProducts for bulk.
 
 /**
- * Check inventory for specific SKUs
+ * Check inventory for specific SKUs by calling the per-SKU endpoint.
+ * Callers should batch this to avoid rate limiting.
  */
 export async function checkInventory(
   credentials: NalpacCredentials,
-  skus: string[]
+  skus: string[],
+  locationId: number = LOCATION_NALPAC
 ): Promise<Map<string, number>> {
-  const baseUrl = getBaseUrl(credentials);
   const results = new Map<string, number>();
-
-  // Try batch endpoint first
-  try {
-    const url = `${baseUrl}/api/inventory`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: getAuthHeader(credentials),
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({ itemNumbers: skus }),
-    });
-
-    if (response.ok) {
-      const data = await response.json() as any[];
-      data.forEach((item: any) => {
-        const sku = String(item.itemNumber || item.sku || "");
-        const qty = parseInt(String(item.quantityAvailable || item.qty || "0"), 10);
-        if (sku) results.set(sku, qty);
-      });
-      return results;
-    }
-  } catch {
-    // Fall through to individual checks
-  }
-
-  // Fall back to individual checks
   for (const sku of skus) {
-    const url = `${baseUrl}/api/inventory/${encodeURIComponent(sku)}`;
-    const response = await fetch(url, {
-      headers: {
-        Authorization: getAuthHeader(credentials),
-        Accept: "application/json",
-      },
-    });
-    if (response.ok) {
-      const data = await response.json() as any;
-      const qty = parseInt(String(data.quantityAvailable || data.qty || "0"), 10);
-      results.set(sku, qty);
-    } else {
+    try {
+      const product = await getProductBySku(credentials, sku, locationId);
+      results.set(sku, product?.inventoryQty ?? 0);
+    } catch {
       results.set(sku, 0);
     }
     await new Promise((r) => setTimeout(r, 100));
@@ -280,8 +310,12 @@ export async function checkInventory(
   return results;
 }
 
-// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Place Order Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+// --- Place Order ---
 
+/**
+ * Submit a new order. Payload matches the v2 docs Create Order schema exactly.
+ * POST /api/order
+ */
 export async function placeOrder(
   credentials: NalpacCredentials,
   order: NalpacOrderRequest
@@ -289,62 +323,84 @@ export async function placeOrder(
   const baseUrl = getBaseUrl(credentials);
   const url = `${baseUrl}/api/order`;
 
+  const orderDate = order.orderDate || new Date().toISOString().slice(0, 10);
+  const shippingOptionId = Number(order.shippingOptionId);
+  if (!Number.isFinite(shippingOptionId) || shippingOptionId <= 0) {
+    return {
+      success: false,
+      error: `Invalid shippingOptionId: ${order.shippingOptionId}. Must be a numeric carrier ID from /api/carrier.`,
+    };
+  }
+
   const payload = {
-    poNumber: order.poNumber,
-    shippingMethod: order.shippingMethod,
-    shipTo: {
-      name: order.shipToName,
-      address1: order.shipToAddress1,
-      address2: order.shipToAddress2 || "",
-      city: order.shipToCity,
-      state: order.shipToState,
-      zip: order.shipToZip,
-      country: order.shipToCountry,
-      phone: order.shipToPhone,
+    OrderDate: orderDate,
+    PoNumber: order.poNumber,
+    OrderNotes: order.orderNotes || "",
+    ShippingAddress: {
+      Name: order.shipToName,
+      Address1: order.shipToAddress1,
+      Address2: order.shipToAddress2 || "",
+      Address3: order.shipToAddress3 || "",
+      City: order.shipToCity,
+      State: order.shipToState,
+      ZipCode: order.shipToZip,
+      Country: order.shipToCountry,
     },
-    items: order.items.map((item) => ({
-      itemNumber: item.itemNumber,
-      quantity: item.quantity,
+    ShipToPhoneNumber: order.shipToPhone,
+    ShipToEmailAddress: order.shipToEmail || "",
+    ShippingOptionId: shippingOptionId,
+    DeliveryInstructions: order.deliveryInstructions || "",
+    SignatureRequired: order.signatureRequired ?? false,
+    CreateOrderRequestLines: order.items.map((item) => ({
+      Sku: item.itemNumber,
+      Quantity: item.quantity,
     })),
-    specialInstructions: order.specialInstructions || "",
   };
+
+  console.log(`[nalpac] placeOrder: POST ${url} (PO=${order.poNumber})`);
 
   const response = await fetch(url, {
     method: "POST",
-    headers: {
-      Authorization: getAuthHeader(credentials),
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
+    headers: jsonHeaders(credentials),
     body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "Unknown error");
-    return { success: false, error: errorText };
+    console.log(`[nalpac] placeOrder: failed HTTP ${response.status}: ${errorText}`);
+    return { success: false, error: `HTTP ${response.status}: ${errorText}` };
   }
 
   const data = await response.json() as any;
+  const orderId =
+    data.orderNumber || data.OrderNumber ||
+    data.orderId || data.OrderId ||
+    data.id || data.Id || "";
+
   return {
     success: true,
-    orderId: String(data.orderId || data.orderNumber || data.id || ""),
-    message: data.message || "Order submitted successfully",
+    orderId: String(orderId),
+    message: data.message || data.Message || "Order submitted successfully",
   };
 }
 
-// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Order Status Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+// --- Order Status ---
 
+/**
+ * GET /api/order/{orderNumber}
+ */
 export async function getOrderStatus(
   credentials: NalpacCredentials,
-  orderId: string
+  orderNumber: string
 ): Promise<{
   status: string;
   trackingNumber?: string;
   carrier?: string;
   shippedAt?: string;
+  poNumber?: string;
 }> {
   const baseUrl = getBaseUrl(credentials);
-  const url = `${baseUrl}/api/order/${encodeURIComponent(orderId)}`;
+  const url = `${baseUrl}/api/order/${encodeURIComponent(orderNumber)}`;
 
   const response = await fetch(url, {
     headers: {
@@ -359,34 +415,108 @@ export async function getOrderStatus(
 
   const data = await response.json() as any;
   return {
-    status: data.status || data.orderStatus || "unknown",
-    trackingNumber: data.trackingNumber || data.tracking || undefined,
-    carrier: data.carrier || data.shippingCarrier || undefined,
-    shippedAt: data.shipDate || data.shippedDate || undefined,
+    status: data.status || data.Status || data.orderStatus || "unknown",
+    trackingNumber: data.trackingNumber || data.TrackingNumber || data.tracking || undefined,
+    carrier: data.carrier || data.Carrier || data.shippingCarrier || undefined,
+    shippedAt: data.shipDate || data.ShipDate || data.shippedDate || data.ShippedDate || undefined,
+    poNumber: data.poNumber || data.PoNumber || undefined,
   };
 }
 
-// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Validate Credentials Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+/**
+ * GET /api/order?poNumber=X
+ * Look up a Nalpac order using your own PO number.
+ */
+export async function getOrderByPoNumber(
+  credentials: NalpacCredentials,
+  poNumber: string
+): Promise<{ orderNumber: string; status: string; trackingNumber?: string } | null> {
+  const baseUrl = getBaseUrl(credentials);
+  const url = `${baseUrl}/api/order?poNumber=${encodeURIComponent(poNumber)}`;
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: getAuthHeader(credentials),
+      Accept: "application/json",
+    },
+  });
+
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(`Nalpac getOrderByPoNumber HTTP ${response.status}`);
+  }
+  const data = await response.json() as any;
+  const orders = extractList(data);
+  if (orders.length === 0) return null;
+  const o = orders[0];
+  return {
+    orderNumber: String(o.orderNumber || o.OrderNumber || o.id || ""),
+    status: String(o.status || o.Status || o.orderStatus || "unknown"),
+    trackingNumber: o.trackingNumber || o.TrackingNumber || undefined,
+  };
+}
+
+// --- Carriers ---
+
+/**
+ * GET /api/carrier
+ * Fetch the live list of shipping carriers/methods and their IDs.
+ */
+export async function fetchCarriers(
+  credentials: NalpacCredentials
+): Promise<NalpacCarrier[]> {
+  const baseUrl = getBaseUrl(credentials);
+  const url = `${baseUrl}/api/carrier`;
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: getAuthHeader(credentials),
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Nalpac fetchCarriers HTTP ${response.status}`);
+  }
+
+  const data = await response.json() as any;
+  const items = extractList(data);
+  return items.map((c: any) => ({
+    id: Number(c.id || c.Id || c.shippingOptionId || c.ShippingOptionId || c.carrierId || c.CarrierId || 0),
+    name: String(c.name || c.Name || c.label || c.Label || c.description || ""),
+  })).filter((c: NalpacCarrier) => c.id > 0);
+}
+
+// --- Validate Credentials ---
 
 export async function validateCredentials(
   credentials: NalpacCredentials
 ): Promise<{ valid: boolean; error?: string }> {
-  // Reuse fetchProducts so Test Connection exercises the exact same auth
-  // path and endpoint discovery that catalog sync will use.
-  console.log(`[nalpac] validateCredentials: testing with fetchProducts (page=1, size=1)`);
+  console.log(`[nalpac] validateCredentials: fetching 1 product from LocationId=15`);
   try {
-    await fetchProducts(credentials, 1, 1);
+    await fetchProductsForLocation(credentials, 1, 1, LOCATION_NALPAC);
     console.log(`[nalpac] validateCredentials: success`);
     return { valid: true };
   } catch (error) {
     const msg = String(error);
-    console.log(`[nalpac] validateCredentials: failed — ${msg}`);
+    console.log(`[nalpac] validateCredentials: failed: ${msg}`);
+    // Give a user-friendly message if the error looks like auth
+    if (msg.includes("401") || msg.includes("403") || /authentication/i.test(msg)) {
+      return {
+        valid: false,
+        error:
+          "Authentication failed. Make sure your username is your Nalpac Customer ID " +
+          "(e.g. 142959), not your email address, and that your API password matches " +
+          "what Nalpac issued.",
+      };
+    }
     return { valid: false, error: msg };
   }
 }
 
-// Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Shipping Methods Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ
-// These are common Nalpac shipping codes Ã¢ÂÂ verify with actual API docs
+// --- Shipping Methods (fallback static list) ---
+// The authoritative source is GET /api/carrier. This list is a fallback used
+// in the Settings UI dropdown when we can't hit the live endpoint.
 
 export const SHIPPING_METHODS = [
   { code: "131966", label: "CHEAPEST Method" },
@@ -410,7 +540,6 @@ export const SHIPPING_METHODS = [
   { code: "133795", label: "Best Rate 3 Day" },
 ];
 
-// Full carrier code lookup (all codes from Nalpac, Oct 2025)
 export const NALPAC_CARRIER_CODES: Record<string, string> = {
   "131966": "CHEAPEST Method",
   "133481": "Best Rate Standard",
@@ -449,4 +578,9 @@ export const NALPAC_CARRIER_CODES: Record<string, string> = {
   "142923": "Endicia Priority",
   "142924": "Endicia Express",
   "143097": "FedEx One Rate",
+};
+
+export const LOCATION_IDS = {
+  NALPAC: LOCATION_NALPAC,
+  ENTRENUE: LOCATION_ENTRENUE,
 };
