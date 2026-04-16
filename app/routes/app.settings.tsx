@@ -440,15 +440,16 @@ function SupplierSection({
 
             <FormLayout>
               {fields.map((field) => (
-                <TextField
-                  key={field.name}
-                  label={field.label}
-                  type={field.type as any}
-                  value={values[field.name] || ""}
-                  placeholder={field.placeholder}
-                  onChange={(v) => setValues((prev) => ({ ...prev, [field.name]: v }))}
-                  autoComplete="off"
-                />
+                <div key={field.name} data-1p-ignore data-lpignore="true">
+                  <TextField
+                    label={field.label}
+                    type={field.type as any}
+                    value={values[field.name] || ""}
+                    placeholder={field.placeholder}
+                    onChange={(v) => setValues((prev) => ({ ...prev, [field.name]: v }))}
+                    autoComplete="new-password"
+                  />
+                </div>
               ))}
               {shippingOptions.length > 0 && (
                 <Select

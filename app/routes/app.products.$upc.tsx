@@ -196,28 +196,14 @@ export default function ProductDetailPage() {
         disabled: !!match.shopifyProductId,
         onAction: () => setImportOpen(true),
       }}
-      secondaryActions={[
-        {
-          content:
-            fetcher.state === "submitting"
-              ? "Preparing download..."
-              : "Download All Images",
-          loading: fetcher.state === "submitting",
-          onAction: handleDownloadImages,
-          disabled: uniqueImages.length === 0,
-        },
-      ]}
+      secondaryActions={[]}
     >
       <Layout>
         {match.shopifyProductId && (
           <Layout.Section>
             <Banner tone="success" title="This product is in your Shopify store">
               <Button
-                url={`https://${
-                  typeof window !== "undefined"
-                    ? window.location.hostname.replace("admin.", "")
-                    : ""
-                }/admin/products/${match.shopifyProductId}`}
+                url={`shopify://admin/products/${match.shopifyProductId?.replace("gid://shopify/Product/", "")}`}
                 target="_blank"
                 variant="plain"
               >
@@ -349,9 +335,20 @@ export default function ProductDetailPage() {
         <Layout.Section>
           <Card>
             <BlockStack gap="400">
-              <Text as="h2" variant="headingMd">
-                Images ({uniqueImages.length} across all suppliers)
-              </Text>
+              <InlineStack align="space-between" blockAlign="center">
+                <Text as="h2" variant="headingMd">
+                  Images ({uniqueImages.length} across all suppliers)
+                </Text>
+                {uniqueImages.length > 0 && (
+                  <Button
+                    size="slim"
+                    onClick={handleDownloadImages}
+                    loading={fetcher.state === "submitting"}
+                  >
+                    Download All
+                  </Button>
+                )}
+              </InlineStack>
               <Divider />
               <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
                 {uniqueImages.slice(0, 20).map((img: string) => (

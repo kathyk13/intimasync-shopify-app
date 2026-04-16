@@ -551,9 +551,15 @@ export default function ProductsIndexPage() {
     >
       <Layout>
         <Layout.Section>
+          <BlockStack gap="400">
           {dbError && (
-            <Banner tone="critical" title="Product data unavailable">
-              There was a problem loading product data. Please try syncing your catalog from the Sync page, or check Settings to ensure your supplier credentials are saved.
+            <Banner
+              tone="critical"
+              title="Product data unavailable"
+              action={{ content: "Go to Sync", url: "/app/sync" }}
+              secondaryAction={{ content: "Check Settings", url: "/app/settings" }}
+            >
+              There was a problem loading product data. Sync your catalog or check that your supplier credentials are saved.
             </Banner>
           )}
 
@@ -824,6 +830,7 @@ export default function ProductsIndexPage() {
               onNext={() => applyFilters({ page: String(page + 1) })}
             />
           </div>
+          </BlockStack>
         </Layout.Section>
       </Layout>
 

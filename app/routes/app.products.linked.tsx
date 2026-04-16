@@ -4,9 +4,9 @@
  * Handles multi-variant products (e.g. Coochy Shave Cream with different sizes/scents).
  */
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { json, type LoaderFunctionArgs, type ActionFunctionArgs } from "@remix-run/node";
-import { useLoaderData, useFetcher, Link } from "@remix-run/react";
+import { useLoaderData, useFetcher, Link, useNavigate } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -344,7 +344,13 @@ export default function LinkedProductsPage() {
   const { products, total, page, perPage, linkedCount, potentialCount, unmatchedCount, dbError } =
     useLoaderData<typeof loader>();
   const fetcher = useFetcher();
+  const navigate = useNavigate();
   const [autoLinkDone, setAutoLinkDone] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<"all" | "linked" | "potential" | "unmatched">("all");
+
+  const filteredProducts = statusFilter === "all"
+    ? products
+    : products.filter((p) => p.matchStatus === statusFilter);
 
   const statusIcon = (status: string) => {
     if (status === "linked")
@@ -382,7 +388,7 @@ export default function LinkedProductsPage() {
     );
   }
 
-  const rowMarkup = products.map((p, index) => {
+  const rowMarkup = filteredProducts.map((p, index) => {
     const displayTitle = p.variantTitle
       ? `${p.productTitle} - ${p.variantTitle}`
       : p.productTitle;
@@ -403,8 +409,7 @@ export default function LinkedProductsPage() {
               {displayTitle}
             </Text>
             <Text as="span" variant="bodySm" tone="subdued">
-              {p.shopifySku ? `SKU: ${p.shopifySku}` : "No SKU"}
-              {p.upc ? ` | UPC: ${p.upc}` : " | No barcode"}
+              {p.upc ? `UPC: ${p.upc}` : "No barcode"}
             </Text>
           </BlockStack>
         </IndexTable.Cell>
@@ -494,10 +499,45 @@ export default function LinkedProductsPage() {
     >
       <Layout>
         <Layout.Section>
-          <InlineStack gap="400">
-            <Badge tone="success">{linkedCount} Linked</Badge>
-            <Badge tone="attention">{potentialCount} Potential</Badge>
-            <Badge tone="critical">{unmatchedCount} Unmatched</Badge>
+          <InlineStack gap="200">
+            <Button
+              size="slim"
+              pressed={statusFilter === "all"}
+              onClick={() => setStatusFilter("all")}
+            >
+              All ({total})
+            </Button>
+            <Button
+              size="slim"
+              pressed={statusFilter === "linked"}
+              onClick={() => setStatusFilter(statusFilter === "linked" ? "all" : "linked")}
+              tone={statusFilter === "linked" ? "success" : undefined}
+            >
+              <InlineStack gap="100" blockAlign="center">
+                <Badge tone="success">{linkedCount}</Badge>
+                <span>Linked</span>
+              </InlineStack>
+            </Button>
+            <Button
+              size="slim"
+              pressed={statusFilter === "potential"}
+              onClick={() => setStatusFilter(statusFilter === "potential" ? "all" : "potential")}
+            >
+              <InlineStack gap="100" blockAlign="center">
+                <Badge tone="attention">{potentialCount}</Badge>
+                <span>Potential</span>
+              </InlineStack>
+            </Button>
+            <Button
+              size="slim"
+              pressed={statusFilter === "unmatched"}
+              onClick={() => setStatusFilter(statusFilter === "unmatched" ? "all" : "unmatched")}
+            >
+              <InlineStack gap="100" blockAlign="center">
+                <Badge tone="critical">{unmatchedCount}</Badge>
+                <span>Unmatched</span>
+              </InlineStack>
+            </Button>
           </InlineStack>
         </Layout.Section>
 
@@ -544,7 +584,7 @@ export default function LinkedProductsPage() {
           <Card padding="0">
             <IndexTable
               resourceName={{ singular: "variant", plural: "variants" }}
-              itemCount={total}
+              itemCount={filteredProducts.length}
               headings={[
                 { title: "" },
                 { title: "Product / Variant" },
@@ -563,13 +603,9 @@ export default function LinkedProductsPage() {
             <div style={{ display: "flex", justifyContent: "center", marginTop: "16px" }}>
               <Pagination
                 hasPrevious={page > 1}
-                onPrevious={() => {
-                  window.location.href = `/app/products/linked?page=${page - 1}`;
-                }}
+                onPrevious={() => navigate(`/app/products/linked?page=${page - 1}`)}
                 hasNext={page * perPage < total}
-                onNext={() => {
-                  window.location.href = `/app/products/linked?page=${page + 1}`;
-                }}
+                onNext={() => navigate(`/app/products/linked?page=${page + 1}`)}
               />
             </div>
           )}
