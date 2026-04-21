@@ -1,0 +1,182 @@
+// IntimaSync - Prisma Schema
+// Database: PostgreSQL (Supabase)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_DIRECT_URL")
+}
+
+// ─── Shopify Session Storage (required by @shopify/shopify-app-session-storage-prisma) ───
+
+model Session {
+  id          String    @id
+  shop        String
+  state       String
+  isOnline    Boolean   @default(false)
+  scope       String?
+  expires     DateTime?
+  accessToken String
+  userId      BigInt?
+  firstName   String?
+  lastName    String?
+  email       String?
+  accountOwner Boolean  @default(false)
+  locale      String?
+  collaborator Boolean? @default(false)
+  emailVerified Boolean? @default(false)
+}
+
+// ─── Installed Shops ───
+
+model Shop {
+  id              String   @id @default(cuid())
+  shopifyDomain   String   @unique
+  accessToken     String
+  planTier        String   @default("trial") // trial | starter | growth | pro
+  billingActive   Boolean  @default(false)
+  trialStartedAt  DateTime @default(now())
+  installedAt     DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  fulfillmentPriority    String?
+  consolidationThreshold Float?   // % threshold for multi-supplier consolidation
+
+  supplierCredentials SupplierCredential[]
+  supplierProducts    SupplierProduct[]
+  productMatches      ProductMatch[]
+  syncLogs            SyncLog[]
+  orderRoutings       OrderRouting[]
+}
+
+// ─── Supplier Credentials ───
+
+model SupplierCredential {
+  id                   String   @id @default(cuid())
+  shopId               String
+  supplier             String   // eldorado | honeysplace | nalpac
+  credentialsEncrypted String   // JSON encrypted with app secret
+  enabled              Boolean  @default(true)
+  defaultShippingCode  String?  // carrier code to use when placing orders
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, supplier])
+}
+
+// ─── Supplier Product Cache ───
+
+model SupplierProduct {
+  id              String   @id @default(cuid())
+  shopId          String
+  supplier        String   // eldorado | honeysplace | nalpac
+  supplierSku     String   // supplier's own item code
+  upc             String?  // used for cross-supplier matching
+  title           String
+  description     String?  @db.Text
+  msrp            Float?   // manufacturer suggested retail price
+  cost            Float?   // wholesale cost to us
+  inventoryQty    Int      @default(0)
+  category        String?
+  manufacturer    String?
+  imagesJson      String?  @db.Text // JSON array of image URLs
+  videosJson      String?  @db.Text
+  dimensionsJson  String?  @db.Text // height, width, depth, weight
+  propertiesJson  String?  @db.Text // color, material, size, etc.
+  isActive        Boolean  @default(true)
+  lastSyncedAt    DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, supplier, supplierSku])
+  @@index([shopId, upc])
+  @@index([shopId, supplier])
+}
+
+// ─── Product Matches (UPC-based cross-supplier linking) ───
+
+model ProductMatch {
+  id                  String   @id @default(cuid())
+  shopId              String
+  upc                 String
+  eldoradoSku         String?
+  honeysplaceSku      String?
+  nalpacSku           String?
+  ecnSku              String?
+  defaultSupplier     String?  // auto-computed cheapest supplier
+  lockedSupplier      String?  // manual override (null = auto)
+  shopifyProductId    String?  // Shopify GID after import
+  shopifyVariantId    String?
+  internalSku         String?  // user-defined SKU in Shopify
+  isFavorite          Boolean  @default(false)
+  importedAt          DateTime?
+  lastPriceUpdateAt   DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, upc])
+  @@index([shopId, shopifyProductId])
+}
+
+// ─── Sync Logs ───
+
+model SyncLog {
+  id               String   @id @default(cuid())
+  shopId           String
+  supplier         String   // eldorado | honeysplace | nalpac | all
+  syncType         String   // products | inventory | orders | prices
+  startedAt        DateTime @default(now())
+  completedAt      DateTime?
+  recordsProcessed Int      @default(0)
+  recordsUpdated   Int      @default(0)
+  errorsJson       String?  @db.Text
+  status           String   @default("running") // running | success | partial | failed
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([shopId, startedAt])
+}
+
+// ─── Order Routing ───
+
+model OrderRouting {
+  id                String   @id @default(cuid())
+  shopId            String
+  shopifyOrderId    String
+  shopifyOrderNumber String?
+  routingJson       String?  @db.Text // full routing decision snapshot
+  status            String   @default("pending") // pending | routed | fulfilled | error
+  createdAt         DateTime @default(now())
+  fulfilledAt       DateTime?
+  updatedAt         DateTime  @updatedAt
+
+  shop        Shop               @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  lineRoutings OrderLineRouting[]
+
+  @@unique([shopId, shopifyOrderId])
+}
+
+model OrderLineRouting {
+  id               String   @id @default(cuid())
+  orderRoutingId   String
+  shopifyLineItemId String
+  supplier         String
+  supplierSku      String
+  qty              Int
+  supplierOrderRef String?  // reference number returned by supplier
+  trackingNumber   String?
+  trackingUrl      String?
+  shippedAt        DateTime?
+  status           String   @default("pending") // pending | submitted | shipped | delivered
+
+  orderRouting OrderRouting @relation(fields: [orderRoutingId], references: [id], onDelete: Cascade)
+}
